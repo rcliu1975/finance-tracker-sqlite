@@ -5,18 +5,22 @@ import {
   getDoc,
   getDocs,
   initializeFirebaseServices,
-  limit,
   loadFirebaseBootstrap,
   onAuthStateChanged,
-  orderBy,
-  query,
   setDoc,
   signInWithEmailAndPassword,
   signOut,
   updateDoc,
-  where
 } from "./data/firebase-backend.js";
-import { userCollectionRef, userDocumentRef, userMetaRef, userMonthlySnapshotRef } from "./data/firestore-user-paths.js";
+import { userCollectionRef, userDocumentRef, userMetaRef } from "./data/firestore-user-paths.js";
+import {
+  loadHistoryMetadata,
+  loadLatestSnapshotBeforeMonth,
+  loadReferenceData,
+  loadSettingsState,
+  loadSnapshotByMonth,
+  loadTransactionsByDateRange
+} from "./data/firebase-repository.js";
 
 let authInitialized = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
@@ -444,37 +448,26 @@ async function loadAll() {
   state.monthlySnapshots = [];
   state.loadedSnapshotMonths.clear();
   state.loadedLatestSnapshotBeforeTargets.clear();
-  const settingsRef = userMetaRef(db, state.uid, "settings");
-  const [accounts, categories, recurring, settingsSnap, hasTransactions, earliestTransactionMonth, earliestSnapshotMonth] = await Promise.all([
-    loadCollection("accounts"),
-    loadCollection("categories"),
-    loadCollection("recurring"),
-    getDoc(settingsRef),
-    hasAnyTransactions(),
-    getEarliestTransactionMonthFromStore(),
-    getEarliestSnapshotMonthFromStore()
+  const [{ accounts, categories, recurring }, settingsData, historyMetadata] = await Promise.all([
+    loadReferenceData(db, state.uid),
+    loadSettingsState(db, state.uid),
+    loadHistoryMetadata(db, state.uid)
   ]);
   state.accounts = accounts;
   state.categories = categories;
   state.recurring = recurring;
-  state.earliestTransactionMonth = earliestTransactionMonth;
-  state.earliestSnapshotMonth = earliestSnapshotMonth;
+  state.earliestTransactionMonth = historyMetadata.earliestTransactionMonth;
+  state.earliestSnapshotMonth = historyMetadata.earliestSnapshotMonth;
   state.settings = {
     monthlyBudget: 0,
     recurringAppliedMonth: "",
     snapshotDirtyFromMonth: "",
     legacyTransactionsCheckedAt: 0,
-    ...(settingsSnap.data() || {})
+    ...settingsData
   };
-  state.hasTransactions = hasTransactions;
+  state.hasTransactions = historyMetadata.hasTransactions;
   await refreshTransactionsForCurrentView();
   invalidateDerivedDataCache();
-}
-
-async function loadCollection(name, orderField) {
-  const reference = orderField ? query(path(name), orderBy(orderField, "desc")) : path(name);
-  const snap = await getDocs(reference);
-  return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
 function upsertMonthlySnapshot(snapshot) {
@@ -495,9 +488,9 @@ async function loadSnapshotMonth(month) {
     return;
   }
   state.loadedSnapshotMonths.add(normalizedMonth);
-  const snapshot = await getDoc(userMonthlySnapshotRef(db, state.uid, normalizedMonth));
-  if (snapshot.exists()) {
-    upsertMonthlySnapshot({ id: snapshot.id, ...snapshot.data() });
+  const snapshot = await loadSnapshotByMonth(db, state.uid, normalizedMonth);
+  if (snapshot) {
+    upsertMonthlySnapshot(snapshot);
   }
 }
 
@@ -507,10 +500,9 @@ async function loadLatestSnapshotBefore(targetMonth) {
     return;
   }
   state.loadedLatestSnapshotBeforeTargets.add(normalizedMonth);
-  const snap = await getDocs(query(path("monthlySnapshots"), where("month", "<", normalizedMonth), orderBy("month", "desc"), limit(1)));
-  if (!snap.empty) {
-    const snapshot = snap.docs[0];
-    upsertMonthlySnapshot({ id: snapshot.id, ...snapshot.data() });
+  const snapshot = await loadLatestSnapshotBeforeMonth(db, state.uid, normalizedMonth);
+  if (snapshot) {
+    upsertMonthlySnapshot(snapshot);
   }
 }
 
@@ -544,27 +536,6 @@ async function ensureSnapshotCoverage() {
     latestBeforeTargets.add(state.desktopDate);
   }
   await Promise.all(Array.from(latestBeforeTargets).map((targetMonth) => loadLatestSnapshotBefore(targetMonth)));
-}
-
-async function hasAnyTransactions() {
-  const snap = await getDocs(query(path("transactions"), orderBy("date", "desc"), limit(1)));
-  return !snap.empty;
-}
-
-async function getEarliestTransactionMonthFromStore() {
-  const snap = await getDocs(query(path("transactions"), orderBy("date", "asc"), limit(1)));
-  if (snap.empty) {
-    return "";
-  }
-  return monthKey(snap.docs[0].data()?.date || "");
-}
-
-async function getEarliestSnapshotMonthFromStore() {
-  const snap = await getDocs(query(path("monthlySnapshots"), orderBy("month", "asc"), limit(1)));
-  if (snap.empty) {
-    return "";
-  }
-  return String(snap.docs[0].data()?.month || "").trim();
 }
 
 function getMobileRangeDateBounds() {
@@ -631,16 +602,7 @@ function getTransactionQueryScope() {
 }
 
 async function loadTransactionsForRange(startDate = "", endDate = "") {
-  const constraints = [];
-  if (startDate) {
-    constraints.push(where("date", ">=", startDate));
-  }
-  if (endDate) {
-    constraints.push(where("date", "<=", endDate));
-  }
-  constraints.push(orderBy("date", "desc"));
-  const snap = await getDocs(query(path("transactions"), ...constraints));
-  return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return loadTransactionsByDateRange(db, state.uid, startDate, endDate);
 }
 
 async function refreshTransactionsForCurrentView() {
