@@ -8,7 +8,44 @@ import {
 } from "./firebase-backend.js";
 
 export async function loadAppRuntime() {
-  const { firebaseConfig, firebaseRuntime, loadError } = await loadFirebaseBootstrap();
+  const { appRuntime: runtimeConfig = {}, firebaseConfig, firebaseRuntime, loadError } = await loadFirebaseBootstrap();
+  const providerKey = String(runtimeConfig.storageBackend || "firebase").trim().toLowerCase() || "firebase";
+  const localUserId = String(runtimeConfig.localUserId || "local-user").trim() || "local-user";
+  if (providerKey === "sqlite") {
+    const localUser = {
+      uid: localUserId,
+      email: "",
+      displayName: "Local SQLite User",
+      isLocalUser: true
+    };
+    return {
+      db: null,
+      auth: null,
+      bootstrapError: loadError,
+      hasConfig: !loadError,
+      configFileName: "firebase-config.js",
+      providerKey,
+      providerLabel: "SQLite",
+      supportsEmailAuth: false,
+      supportsSignOut: false,
+      observeAuthState(callback) {
+        queueMicrotask(() => {
+          callback(localUser);
+        });
+        return () => {};
+      },
+      registerWithEmail() {
+        return Promise.reject(new Error("SQLite 本機模式目前不支援 Email 註冊。"));
+      },
+      signInWithEmail() {
+        return Promise.reject(new Error("SQLite 本機模式目前不支援 Email 登入。"));
+      },
+      signOut() {
+        return Promise.resolve();
+      }
+    };
+  }
+
   const services = firebaseConfig ? initializeFirebaseServices(firebaseConfig, firebaseRuntime) || {} : {};
   const auth = services.auth || null;
   const db = services.db || null;
@@ -19,7 +56,10 @@ export async function loadAppRuntime() {
     bootstrapError: loadError,
     hasConfig: Boolean(firebaseConfig),
     configFileName: "firebase-config.js",
+    providerKey,
     providerLabel: "Firebase",
+    supportsEmailAuth: true,
+    supportsSignOut: true,
     observeAuthState(callback) {
       if (!auth) {
         return () => {};

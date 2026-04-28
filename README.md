@@ -14,6 +14,7 @@
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
 - 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為未來接上 SQLite backend 預留穩定介面
 - 前端 runtime / auth 也已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
+- 已加入 `APP_STORAGE_BACKEND=sqlite` 的 provider 切換骨架；目前會啟動本機記憶體版 SQLite backend，先驗證前端 API 形狀
 - 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
 
 ### SQLite 匯入測試
@@ -113,6 +114,28 @@ npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --appl
 - `projects` 相關資料流與 CSV 匯出欄位
 
 ## 本機啟動
+
+### SQLite 骨架模式
+
+如果你要先驗證前端在非 Firebase 路徑下能否啟動，可把 `.env` 設成：
+
+```dotenv
+APP_STORAGE_BACKEND=sqlite
+APP_LOCAL_USER_ID=local-user
+```
+
+這個模式目前特性如下：
+
+- 不需要 Firebase Web App 金鑰
+- 不走 Firebase Authentication
+- 會以單一本機使用者進入 app
+- 資料層目前是記憶體版 stub，重新整理頁面後資料不保留
+
+啟動方式仍然相同：
+
+```bash
+npm run serve
+```
 
 ### Production 連線
 

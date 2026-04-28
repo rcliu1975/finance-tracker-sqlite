@@ -82,14 +82,17 @@ function toInteger(value, fallback) {
 }
 
 function writeConfigFile(outputPath, config) {
-  const firebaseConfig = {
-    apiKey: config.FIREBASE_API_KEY,
-    authDomain: config.FIREBASE_AUTH_DOMAIN,
-    projectId: config.FIREBASE_PROJECT_ID,
-    storageBucket: config.FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: config.FIREBASE_MESSAGING_SENDER_ID,
-    appId: config.FIREBASE_APP_ID
-  };
+  const storageBackend = String(config.APP_STORAGE_BACKEND || "firebase").trim().toLowerCase() || "firebase";
+  const firebaseConfig = storageBackend === "firebase"
+    ? {
+        apiKey: config.FIREBASE_API_KEY,
+        authDomain: config.FIREBASE_AUTH_DOMAIN,
+        projectId: config.FIREBASE_PROJECT_ID,
+        storageBucket: config.FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: config.FIREBASE_MESSAGING_SENDER_ID,
+        appId: config.FIREBASE_APP_ID
+      }
+    : null;
 
   const firebaseRuntime = {
     useEmulators: toBoolean(config.FIREBASE_USE_EMULATORS, false),
@@ -99,7 +102,12 @@ function writeConfigFile(outputPath, config) {
     emulatorUiPort: toInteger(config.FIREBASE_EMULATOR_UI_PORT, 4000)
   };
 
-  const content = `// 此檔案由 scripts/generate-firebase-config.js 產生，請勿手動編輯。\nexport const firebaseConfig = ${JSON.stringify(firebaseConfig, null, 2)};\n\nexport const firebaseRuntime = ${JSON.stringify(firebaseRuntime, null, 2)};\n`;
+  const appRuntime = {
+    storageBackend,
+    localUserId: String(config.APP_LOCAL_USER_ID || "local-user").trim() || "local-user"
+  };
+
+  const content = `// 此檔案由 scripts/generate-firebase-config.js 產生，請勿手動編輯。\nexport const firebaseConfig = ${JSON.stringify(firebaseConfig, null, 2)};\n\nexport const firebaseRuntime = ${JSON.stringify(firebaseRuntime, null, 2)};\n\nexport const appRuntime = ${JSON.stringify(appRuntime, null, 2)};\n`;
   fs.writeFileSync(outputPath, content, "utf8");
   console.log(`已產生 ${path.relative(cwd, outputPath)}。`);
 }
@@ -107,14 +115,17 @@ function writeConfigFile(outputPath, config) {
 function main() {
   const options = parseArgs(process.argv);
   const config = readConfig(options);
-  requireKeys(config, [
-    "FIREBASE_API_KEY",
-    "FIREBASE_AUTH_DOMAIN",
-    "FIREBASE_PROJECT_ID",
-    "FIREBASE_STORAGE_BUCKET",
-    "FIREBASE_MESSAGING_SENDER_ID",
-    "FIREBASE_APP_ID"
-  ]);
+  const storageBackend = String(config.APP_STORAGE_BACKEND || "firebase").trim().toLowerCase() || "firebase";
+  if (storageBackend === "firebase") {
+    requireKeys(config, [
+      "FIREBASE_API_KEY",
+      "FIREBASE_AUTH_DOMAIN",
+      "FIREBASE_PROJECT_ID",
+      "FIREBASE_STORAGE_BUCKET",
+      "FIREBASE_MESSAGING_SENDER_ID",
+      "FIREBASE_APP_ID"
+    ]);
+  }
   writeConfigFile(options.output, config);
 }
 

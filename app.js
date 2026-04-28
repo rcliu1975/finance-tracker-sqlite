@@ -3,10 +3,6 @@ import { createAppDataBackend } from "./data/app-data-backend.js";
 
 let authInitialized = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
-const dataBackend = createAppDataBackend({
-  getDb: () => db,
-  getUid: () => state.uid
-});
 
 window.addEventListener("error", (event) => {
   const message = event.error?.message || event.message || "未知錯誤";
@@ -35,6 +31,11 @@ window.addEventListener("unhandledrejection", (event) => {
 const appRuntime = await loadAppRuntime();
 const { db, bootstrapError: runtimeBootstrapError, configFileName, hasConfig: hasBackendConfig, providerLabel } = appRuntime;
 const waitingProviderStatus = `等待 ${providerLabel} 連線`;
+const dataBackend = createAppDataBackend({
+  getDb: () => db,
+  getUid: () => state.uid,
+  providerKey: appRuntime.providerKey
+});
 
 if (hasBackendConfig) {
   document.getElementById("authStatus").textContent = waitingProviderStatus;
@@ -1340,10 +1341,12 @@ function renderAuthState(user) {
   if (!user) {
     document.body.classList.add("auth-signed-out");
     $("appShell").classList.add("hidden");
-    $("emailAuthForm").classList.remove("hidden");
+    $("emailAuthForm").classList.toggle("hidden", !appRuntime.supportsEmailAuth);
     $("signedInControls").classList.add("hidden");
     if (!$("authError").textContent) {
-      $("authStatus").textContent = "請輸入 Email 與密碼登入或註冊";
+      $("authStatus").textContent = appRuntime.supportsEmailAuth
+        ? "請輸入 Email 與密碼登入或註冊"
+        : `${providerLabel} 後端尚未連線`;
     }
     return;
   }
@@ -1353,9 +1356,13 @@ function renderAuthState(user) {
   $("appShell").classList.remove("hidden");
   $("emailAuthForm").classList.add("hidden");
   $("signedInControls").classList.remove("hidden");
+  $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSignOut);
 }
 
 function getDisplayName(user) {
+  if (user.displayName) {
+    return user.displayName;
+  }
   return user.email ? user.email.split("@")[0] : user.uid;
 }
 

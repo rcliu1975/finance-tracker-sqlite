@@ -15,3 +15,8 @@ export const firebaseRuntime = {
   firestoreEmulatorPort: 8080,
   emulatorUiPort: 4000
 };
+
+export const appRuntime = {
+  storageBackend: "firebase",
+  localUserId: "local-user"
+};

@@ -45,10 +45,10 @@ export {
 
 export async function loadFirebaseBootstrap() {
   try {
-    const { firebaseConfig = null, firebaseRuntime = {} } = await import("../firebase-config.js");
-    return { firebaseConfig, firebaseRuntime, loadError: null };
+    const { appRuntime = {}, firebaseConfig = null, firebaseRuntime = {} } = await import("../firebase-config.js");
+    return { appRuntime, firebaseConfig, firebaseRuntime, loadError: null };
   } catch (loadError) {
-    return { firebaseConfig: null, firebaseRuntime: {}, loadError };
+    return { appRuntime: {}, firebaseConfig: null, firebaseRuntime: {}, loadError };
   }
 }
 
