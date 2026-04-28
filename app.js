@@ -1,25 +1,28 @@
 import {
-  addDoc,
   createUserWithEmailAndPassword,
-  deleteDoc,
   getDoc,
   getDocs,
   initializeFirebaseServices,
   loadFirebaseBootstrap,
   onAuthStateChanged,
-  setDoc,
   signInWithEmailAndPassword,
-  signOut,
-  updateDoc,
+  signOut
 } from "./data/firebase-backend.js";
-import { userCollectionRef, userDocumentRef, userMetaRef } from "./data/firestore-user-paths.js";
+import { userCollectionRef, userMetaRef } from "./data/firestore-user-paths.js";
 import {
+  batchUpdateUserCollectionOrders,
+  createUserCollectionDocument,
+  deleteUserCollectionDocument,
   loadHistoryMetadata,
   loadLatestSnapshotBeforeMonth,
   loadReferenceData,
   loadSettingsState,
   loadSnapshotByMonth,
-  loadTransactionsByDateRange
+  loadTransactionsByDateRange,
+  replaceSettingsState,
+  saveSettingsPatch,
+  saveUserCollectionDocument,
+  updateUserCollectionDocument
 } from "./data/firebase-repository.js";
 
 let authInitialized = false;
@@ -311,7 +314,7 @@ async function markSnapshotDirtyFromMonth(month) {
     return;
   }
   state.settings.snapshotDirtyFromMonth = nextMonth;
-  await updateDoc(userMetaRef(db, state.uid, "settings"), {
+  await saveSettingsPatch(db, state.uid, {
     snapshotDirtyFromMonth: nextMonth
   });
 }
@@ -365,7 +368,7 @@ async function ensureDefaults() {
       snapshotDirtyFromMonth: "",
       legacyTransactionsCheckedAt: 0
     };
-    await setDoc(settingsRef, state.settings);
+    await replaceSettingsState(db, state.uid, state.settings);
   } else {
     state.settings = {
       monthlyBudget: Number(settingsSnap.data()?.monthlyBudget || 0),
@@ -378,7 +381,7 @@ async function ensureDefaults() {
   let categoriesSnap = initialCategoriesSnap;
   if (categoriesSnap.empty) {
     for (const category of DEFAULT_CATEGORIES) {
-      await addDoc(path("categories"), { ...category, createdAt: Date.now() });
+      await createUserCollectionDocument(db, state.uid, "categories", { ...category, createdAt: Date.now() });
     }
     categoriesSnap = await getDocs(path("categories"));
   } else {
@@ -401,7 +404,7 @@ async function ensureDefaultCategories(categoriesSnap) {
       if (exists) {
         return;
       }
-      await addDoc(path("categories"), { ...category, createdAt: Date.now() });
+      await createUserCollectionDocument(db, state.uid, "categories", { ...category, createdAt: Date.now() });
     })
   );
 }
@@ -430,12 +433,12 @@ async function ensureProtectedItems(accountsSnap, categoriesSnap) {
         if (String(data.name || "") === payload.name && currentType === payload.type && getItemOrder(data) === payload.order) {
           return;
         }
-        await updateDoc(userDocumentRef(db, state.uid, protectedItem.collection, match.id), payload);
+        await updateUserCollectionDocument(db, state.uid, protectedItem.collection, match.id, payload);
         return;
       }
 
       const defaults = protectedItem.collection === "accounts" ? { balance: 0 } : {};
-      await addDoc(path(protectedItem.collection), {
+      await createUserCollectionDocument(db, state.uid, protectedItem.collection, {
         ...payload,
         ...defaults,
         createdAt: Date.now()
@@ -628,9 +631,9 @@ async function deleteLegacyTransactions() {
     return !data.fromItem || !data.toItem;
   });
 
-  await Promise.all(legacyDocs.map((item) => deleteDoc(userDocumentRef(db, state.uid, "transactions", item.id))));
+  await Promise.all(legacyDocs.map((item) => deleteUserCollectionDocument(db, state.uid, "transactions", item.id)));
   const checkedAt = Date.now();
-  await updateDoc(userMetaRef(db, state.uid, "settings"), {
+  await saveSettingsPatch(db, state.uid, {
     legacyTransactionsCheckedAt: checkedAt
   });
   state.settings.legacyTransactionsCheckedAt = checkedAt;
@@ -696,7 +699,7 @@ function bindEvents() {
   $("budgetForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
-    await updateDoc(userMetaRef(db, state.uid, "settings"), {
+    await saveSettingsPatch(db, state.uid, {
       monthlyBudget: Number(formData.get("monthlyBudget") || 0)
     });
     await loadAll();
@@ -977,14 +980,14 @@ async function handleTransactionSubmit(event) {
   }
 
   if (!state.desktopMode && state.mobileEditingTransactionId) {
-    await setDoc(userDocumentRef(db, state.uid, "transactions", state.mobileEditingTransactionId), payload);
+    await saveUserCollectionDocument(db, state.uid, "transactions", state.mobileEditingTransactionId, payload);
     state.mobileSelectedTransactionId = state.mobileEditingTransactionId;
     state.mobileEditingTransactionId = "";
   } else if (state.desktopMode && state.desktopEditingTransactionId) {
-    await setDoc(userDocumentRef(db, state.uid, "transactions", state.desktopEditingTransactionId), payload);
+    await saveUserCollectionDocument(db, state.uid, "transactions", state.desktopEditingTransactionId, payload);
     state.desktopSelectedTransactionId = state.desktopEditingTransactionId;
   } else {
-    const transactionRef = await addDoc(path("transactions"), payload);
+    const transactionRef = await createUserCollectionDocument(db, state.uid, "transactions", payload);
     if (state.desktopMode) {
       state.desktopSelectedTransactionId = transactionRef.id;
     } else {
@@ -1050,7 +1053,7 @@ async function deleteSelectedMobileTransaction() {
     return;
   }
 
-  await deleteDoc(userDocumentRef(db, state.uid, "transactions", transaction.id));
+  await deleteUserCollectionDocument(db, state.uid, "transactions", transaction.id);
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.mobileSelectedTransactionId = "";
   state.mobileEditingTransactionId = "";
@@ -1175,7 +1178,7 @@ async function saveMobileItem(event) {
       showMessage("請確認期初餘額為有效數字。", "資料錯誤");
       return;
     }
-    const itemRef = await addDoc(path("accounts"), {
+    const itemRef = await createUserCollectionDocument(db, state.uid, "accounts", {
       name,
       balance,
       type,
@@ -1185,7 +1188,7 @@ async function saveMobileItem(event) {
     await loadAll();
     await normalizeItemOrders(type, itemRef.id);
   } else {
-    const itemRef = await addDoc(path("categories"), {
+    const itemRef = await createUserCollectionDocument(db, state.uid, "categories", {
       name,
       type,
       order,
@@ -1241,7 +1244,7 @@ async function deleteSelectedDesktopTransaction() {
     return;
   }
 
-  await deleteDoc(userDocumentRef(db, state.uid, "transactions", transaction.id));
+  await deleteUserCollectionDocument(db, state.uid, "transactions", transaction.id);
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.desktopSelectedTransactionId = "";
   await loadAll();
@@ -1450,7 +1453,7 @@ async function applyRecurringIfNeeded() {
 
   for (const item of state.recurring) {
     const date = `${currentMonth}-${String(Math.min(item.day, 28)).padStart(2, "0")}`;
-    await addDoc(path("transactions"), {
+    await createUserCollectionDocument(db, state.uid, "transactions", {
       date,
       fromItem: accountItem(item.accountId),
       toItem: categoryItem(item.categoryId),
@@ -1459,7 +1462,7 @@ async function applyRecurringIfNeeded() {
     });
   }
 
-  await updateDoc(userMetaRef(db, state.uid, "settings"), {
+  await saveSettingsPatch(db, state.uid, {
     recurringAppliedMonth: currentMonth,
     snapshotDirtyFromMonth: earlierMonth(state.settings.snapshotDirtyFromMonth, currentMonth) || currentMonth
   });
@@ -2022,14 +2025,18 @@ async function normalizeItemOrders(type, selectedId = "") {
       nextOrder += 10;
     }
     if (getItemOrder(item) !== nextValue) {
-      updates.push(updateDoc(userDocumentRef(db, state.uid, item.collection, item.id), { order: nextValue }));
+      updates.push({
+        collection: item.collection,
+        id: item.id,
+        order: nextValue
+      });
     }
   });
 
   if (!updates.length) {
     return false;
   }
-  await Promise.all(updates);
+  await batchUpdateUserCollectionOrders(db, state.uid, updates);
   if (selectedId) {
     state.desktopSettingsSelectedId = `${isDesktopAccountType(type) ? "account" : "category"}:${selectedId}`;
   }
@@ -2124,14 +2131,14 @@ async function saveDesktopSettingsItem(event) {
     };
     if (editing) {
       const previousBalance = Number(editing.balance || 0);
-      await updateDoc(userDocumentRef(db, state.uid, "accounts", editing.id), payload);
+      await updateUserCollectionDocument(db, state.uid, "accounts", editing.id, payload);
       if (previousBalance !== payload.balance) {
         await markSnapshotDirtyFromMonth(getEarliestAccountTransactionMonth(editing.id) || getEarliestTransactionMonth());
       }
       await loadAll();
       await normalizeItemOrders(type, editing.id);
     } else {
-      const itemRef = await addDoc(path("accounts"), { ...payload, createdAt: Date.now() });
+      const itemRef = await createUserCollectionDocument(db, state.uid, "accounts", { ...payload, createdAt: Date.now() });
       await loadAll();
       await normalizeItemOrders(type, itemRef.id);
     }
@@ -2142,11 +2149,11 @@ async function saveDesktopSettingsItem(event) {
       order
     };
     if (editing) {
-      await updateDoc(userDocumentRef(db, state.uid, "categories", editing.id), payload);
+      await updateUserCollectionDocument(db, state.uid, "categories", editing.id, payload);
       await loadAll();
       await normalizeItemOrders(type, editing.id);
     } else {
-      const itemRef = await addDoc(path("categories"), { ...payload, createdAt: Date.now() });
+      const itemRef = await createUserCollectionDocument(db, state.uid, "categories", { ...payload, createdAt: Date.now() });
       await loadAll();
       await normalizeItemOrders(type, itemRef.id);
     }
@@ -2174,7 +2181,7 @@ async function deleteDesktopSettingsItem() {
     return;
   }
 
-  await deleteDoc(userDocumentRef(db, state.uid, item.collection, item.id));
+  await deleteUserCollectionDocument(db, state.uid, item.collection, item.id);
   state.desktopSettingsSelectedId = "";
   await loadAll();
   renderAll();
@@ -2197,12 +2204,14 @@ async function moveDesktopSettingsItem(direction) {
   reorderedItems.splice(currentIndex, 1);
   reorderedItems.splice(targetIndex, 0, current);
 
-  await Promise.all(
-    reorderedItems.map((item, index) =>
-      updateDoc(userDocumentRef(db, state.uid, item.collection, item.id), {
-        order: (index + 1) * 10
-      })
-    )
+  await batchUpdateUserCollectionOrders(
+    db,
+    state.uid,
+    reorderedItems.map((item, index) => ({
+      collection: item.collection,
+      id: item.id,
+      order: (index + 1) * 10
+    }))
   );
 
   state.desktopSettingsSelectedId = current.key;
@@ -3656,7 +3665,7 @@ async function saveEditedTransactions() {
       return;
     }
 
-    await setDoc(userDocumentRef(db, state.uid, "transactions", row.dataset.transactionId), payload);
+    await saveUserCollectionDocument(db, state.uid, "transactions", row.dataset.transactionId, payload);
     dirtyMonth = earlierMonth(dirtyMonth, earlierMonth(monthKey(transaction.date), monthKey(payload.date)));
   }
 
@@ -4035,10 +4044,10 @@ async function importItemsCsv(event) {
       }
       const payload = { name, type, balance, order };
       if (existing) {
-        await updateDoc(userDocumentRef(db, state.uid, "accounts", existing.id), payload);
+        await updateUserCollectionDocument(db, state.uid, "accounts", existing.id, payload);
         updatedCount += 1;
       } else {
-        await addDoc(path("accounts"), { ...payload, createdAt: Date.now() });
+        await createUserCollectionDocument(db, state.uid, "accounts", { ...payload, createdAt: Date.now() });
         createdCount += 1;
       }
       continue;
@@ -4060,10 +4069,10 @@ async function importItemsCsv(event) {
     const payload = { name, type, order };
     let categoryId = existing?.id || "";
     if (existing) {
-      await updateDoc(userDocumentRef(db, state.uid, "categories", existing.id), payload);
+      await updateUserCollectionDocument(db, state.uid, "categories", existing.id, payload);
       updatedCount += 1;
     } else {
-      const itemRef = await addDoc(path("categories"), { ...payload, createdAt: Date.now() });
+      const itemRef = await createUserCollectionDocument(db, state.uid, "categories", { ...payload, createdAt: Date.now() });
       categoryId = itemRef.id;
       createdCount += 1;
     }

@@ -1,5 +1,5 @@
-import { getDoc, getDocs, limit, orderBy, query, where } from "./firebase-backend.js";
-import { userCollectionRef, userMetaRef, userMonthlySnapshotRef } from "./firestore-user-paths.js";
+import { addDoc, deleteDoc, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "./firebase-backend.js";
+import { userCollectionRef, userDocumentRef, userMetaRef, userMonthlySnapshotRef } from "./firestore-user-paths.js";
 
 function monthKey(dateText) {
   return String(dateText || "").slice(0, 7);
@@ -7,6 +7,10 @@ function monthKey(dateText) {
 
 function collectionPath(db, uid, name) {
   return userCollectionRef(db, uid, name);
+}
+
+function documentPath(db, uid, collectionName, id) {
+  return userDocumentRef(db, uid, collectionName, id);
 }
 
 export async function loadCollectionItems(db, uid, name, orderField = "") {
@@ -90,4 +94,38 @@ export async function loadTransactionsByDateRange(db, uid, startDate = "", endDa
   constraints.push(orderBy("date", "desc"));
   const snap = await getDocs(query(collectionPath(db, uid, "transactions"), ...constraints));
   return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+export function replaceSettingsState(db, uid, payload) {
+  return setDoc(userMetaRef(db, uid, "settings"), payload);
+}
+
+export function saveSettingsPatch(db, uid, payload) {
+  return updateDoc(userMetaRef(db, uid, "settings"), payload);
+}
+
+export function createUserCollectionDocument(db, uid, collectionName, payload) {
+  return addDoc(collectionPath(db, uid, collectionName), payload);
+}
+
+export function saveUserCollectionDocument(db, uid, collectionName, id, payload) {
+  return setDoc(documentPath(db, uid, collectionName, id), payload);
+}
+
+export function updateUserCollectionDocument(db, uid, collectionName, id, payload) {
+  return updateDoc(documentPath(db, uid, collectionName, id), payload);
+}
+
+export function deleteUserCollectionDocument(db, uid, collectionName, id) {
+  return deleteDoc(documentPath(db, uid, collectionName, id));
+}
+
+export function batchUpdateUserCollectionOrders(db, uid, items) {
+  return Promise.all(
+    items.map((item) =>
+      updateUserCollectionDocument(db, uid, item.collection, item.id, {
+        order: item.order
+      })
+    )
+  );
 }
