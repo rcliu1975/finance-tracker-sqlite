@@ -6,6 +6,8 @@
 
 - `app-data-backend.js`
   前端固定依賴入口。目前先指向 Firebase 實作；之後切到 SQLite 時，優先替換這層。
+- `app-runtime.js`
+  前端固定依賴的 runtime / auth 入口。目前先包住 Firebase bootstrap、auth state 與登入登出流程。
 - `firebase-backend.js`
   集中 Firebase SDK import、`firebase-config.js` 載入，以及 Firestore / Auth 初始化。
 - `firebase-data-backend.js`
@@ -20,6 +22,7 @@
 3. 主要讀取 query
 4. 交易、設定與項目管理的核心寫入 API
 5. `db/uid` 綁定與 app-facing method 形狀
+6. runtime bootstrap 與 auth action 入口
 
 下一步應該是繼續把剩餘的特殊流程也收進 repository，例如：
 

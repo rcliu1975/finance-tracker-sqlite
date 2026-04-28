@@ -1,11 +1,4 @@
-import {
-  createUserWithEmailAndPassword,
-  initializeFirebaseServices,
-  loadFirebaseBootstrap,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut
-} from "./data/firebase-backend.js";
+import { loadAppRuntime } from "./data/app-runtime.js";
 import { createAppDataBackend } from "./data/app-data-backend.js";
 
 let authInitialized = false;
@@ -39,7 +32,8 @@ window.addEventListener("unhandledrejection", (event) => {
   }
 });
 
-const { firebaseConfig, firebaseRuntime, loadError: firebaseBootstrapError } = await loadFirebaseBootstrap();
+const appRuntime = await loadAppRuntime();
+const { db, bootstrapError: firebaseBootstrapError, hasConfig: hasBackendConfig } = appRuntime;
 
 if (firebaseBootstrapError) {
   document.getElementById("authStatus").textContent = "找不到 firebase-config.js，請先完成設定。";
@@ -240,14 +234,10 @@ function getLatestUsableSnapshotBefore(month) {
   return candidates[0] || null;
 }
 
-let db;
-let auth;
-
-if (firebaseConfig) {
-  ({ db, auth } = initializeFirebaseServices(firebaseConfig, firebaseRuntime) || {});
+if (hasBackendConfig) {
   bindEvents();
 
-  onAuthStateChanged(auth, async (user) => {
+  appRuntime.observeAuthState(async (user) => {
     authInitialized = true;
     if (!user) {
       state.uid = null;
@@ -879,7 +869,7 @@ function bindEvents() {
   $("desktopDeleteBtn").addEventListener("click", deleteSelectedDesktopTransaction);
   $("signOutBtn").addEventListener("click", async () => {
     $("authError").textContent = "";
-    await signOut(auth);
+    await appRuntime.signOut();
   });
 }
 
@@ -897,9 +887,9 @@ async function handleEmailAuth(event) {
     $("authStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
 
     if (action === "register") {
-      await createUserWithEmailAndPassword(auth, email, password);
+      await appRuntime.registerWithEmail(email, password);
     } else {
-      await signInWithEmailAndPassword(auth, email, password);
+      await appRuntime.signInWithEmail(email, password);
     }
 
     form.reset();
