@@ -6,6 +6,7 @@
 
 - `schema.sql`：SQLite 初版 schema
 - `firestore-mapping.md`：目前 Firestore 欄位到 SQLite 欄位的對照
+- `import-notes.md`：目前已確認的 CSV 匯入來源格式備註
 
 ## 設計原則
 
