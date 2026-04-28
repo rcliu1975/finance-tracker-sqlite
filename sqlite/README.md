@@ -5,6 +5,7 @@
 目前提供：
 
 - `schema.sql`：SQLite 初版 schema
+- `firestore-mapping.md`：目前 Firestore 欄位到 SQLite 欄位的對照
 
 ## 設計原則
 
