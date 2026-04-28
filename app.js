@@ -1,31 +1,23 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  connectAuthEmulator,
-  createUserWithEmailAndPassword,
-  getAuth,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   addDoc,
-  collection,
-  connectFirestoreEmulator,
+  createUserWithEmailAndPassword,
   deleteDoc,
-  doc,
   getDoc,
   getDocs,
-  initializeFirestore,
+  initializeFirebaseServices,
   limit,
+  loadFirebaseBootstrap,
+  onAuthStateChanged,
   orderBy,
   query,
   setDoc,
+  signInWithEmailAndPassword,
+  signOut,
   updateDoc,
   where
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+} from "./data/firebase-backend.js";
+import { userCollectionRef, userDocumentRef, userMetaRef, userMonthlySnapshotRef } from "./data/firestore-user-paths.js";
 
-let firebaseConfig;
-let firebaseRuntime = {};
 let authInitialized = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
 
@@ -53,9 +45,9 @@ window.addEventListener("unhandledrejection", (event) => {
   }
 });
 
-try {
-  ({ firebaseConfig, firebaseRuntime = {} } = await import("./firebase-config.js"));
-} catch {
+const { firebaseConfig, firebaseRuntime, loadError: firebaseBootstrapError } = await loadFirebaseBootstrap();
+
+if (firebaseBootstrapError) {
   document.getElementById("authStatus").textContent = "找不到 firebase-config.js，請先完成設定。";
 }
 
@@ -257,32 +249,8 @@ function getLatestUsableSnapshotBefore(month) {
 let db;
 let auth;
 
-function getFirebaseRuntimeConfig() {
-  const runtime = firebaseRuntime || {};
-  const emulatorHost = String(runtime.emulatorHost || "").trim() || window.location.hostname || "127.0.0.1";
-  return {
-    useEmulators: Boolean(runtime.useEmulators),
-    emulatorHost,
-    authEmulatorPort: Number(runtime.authEmulatorPort || 9099),
-    firestoreEmulatorPort: Number(runtime.firestoreEmulatorPort || 8080),
-    emulatorUiPort: Number(runtime.emulatorUiPort || 4000)
-  };
-}
-
 if (firebaseConfig) {
-  const app = initializeApp(firebaseConfig);
-  db = initializeFirestore(app, {
-    experimentalAutoDetectLongPolling: true,
-    useFetchStreams: false
-  });
-  auth = getAuth(app);
-  const runtime = getFirebaseRuntimeConfig();
-  if (runtime.useEmulators) {
-    connectFirestoreEmulator(db, runtime.emulatorHost, runtime.firestoreEmulatorPort);
-    connectAuthEmulator(auth, `http://${runtime.emulatorHost}:${runtime.authEmulatorPort}`, {
-      disableWarnings: true
-    });
-  }
+  ({ db, auth } = initializeFirebaseServices(firebaseConfig, firebaseRuntime) || {});
   bindEvents();
 
   onAuthStateChanged(auth, async (user) => {
@@ -339,7 +307,7 @@ async function markSnapshotDirtyFromMonth(month) {
     return;
   }
   state.settings.snapshotDirtyFromMonth = nextMonth;
-  await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+  await updateDoc(userMetaRef(db, state.uid, "settings"), {
     snapshotDirtyFromMonth: nextMonth
   });
 }
@@ -364,7 +332,7 @@ function getEarliestAccountTransactionMonth(accountId) {
 }
 
 function path(name) {
-  return collection(db, "users", state.uid, name);
+  return userCollectionRef(db, state.uid, name);
 }
 
 async function bootstrap() {
@@ -380,7 +348,7 @@ async function bootstrap() {
 }
 
 async function ensureDefaults() {
-  const settingsRef = doc(db, "users", state.uid, "meta", "settings");
+  const settingsRef = userMetaRef(db, state.uid, "settings");
   const [settingsSnap, initialCategoriesSnap, accountsSnap] = await Promise.all([
     getDoc(settingsRef),
     getDocs(path("categories")),
@@ -458,7 +426,7 @@ async function ensureProtectedItems(accountsSnap, categoriesSnap) {
         if (String(data.name || "") === payload.name && currentType === payload.type && getItemOrder(data) === payload.order) {
           return;
         }
-        await updateDoc(doc(db, "users", state.uid, protectedItem.collection, match.id), payload);
+        await updateDoc(userDocumentRef(db, state.uid, protectedItem.collection, match.id), payload);
         return;
       }
 
@@ -476,7 +444,7 @@ async function loadAll() {
   state.monthlySnapshots = [];
   state.loadedSnapshotMonths.clear();
   state.loadedLatestSnapshotBeforeTargets.clear();
-  const settingsRef = doc(db, "users", state.uid, "meta", "settings");
+  const settingsRef = userMetaRef(db, state.uid, "settings");
   const [accounts, categories, recurring, settingsSnap, hasTransactions, earliestTransactionMonth, earliestSnapshotMonth] = await Promise.all([
     loadCollection("accounts"),
     loadCollection("categories"),
@@ -527,7 +495,7 @@ async function loadSnapshotMonth(month) {
     return;
   }
   state.loadedSnapshotMonths.add(normalizedMonth);
-  const snapshot = await getDoc(doc(db, "users", state.uid, "monthlySnapshots", normalizedMonth));
+  const snapshot = await getDoc(userMonthlySnapshotRef(db, state.uid, normalizedMonth));
   if (snapshot.exists()) {
     upsertMonthlySnapshot({ id: snapshot.id, ...snapshot.data() });
   }
@@ -698,9 +666,9 @@ async function deleteLegacyTransactions() {
     return !data.fromItem || !data.toItem;
   });
 
-  await Promise.all(legacyDocs.map((item) => deleteDoc(doc(db, "users", state.uid, "transactions", item.id))));
+  await Promise.all(legacyDocs.map((item) => deleteDoc(userDocumentRef(db, state.uid, "transactions", item.id))));
   const checkedAt = Date.now();
-  await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+  await updateDoc(userMetaRef(db, state.uid, "settings"), {
     legacyTransactionsCheckedAt: checkedAt
   });
   state.settings.legacyTransactionsCheckedAt = checkedAt;
@@ -766,7 +734,7 @@ function bindEvents() {
   $("budgetForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
-    await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+    await updateDoc(userMetaRef(db, state.uid, "settings"), {
       monthlyBudget: Number(formData.get("monthlyBudget") || 0)
     });
     await loadAll();
@@ -1047,11 +1015,11 @@ async function handleTransactionSubmit(event) {
   }
 
   if (!state.desktopMode && state.mobileEditingTransactionId) {
-    await setDoc(doc(db, "users", state.uid, "transactions", state.mobileEditingTransactionId), payload);
+    await setDoc(userDocumentRef(db, state.uid, "transactions", state.mobileEditingTransactionId), payload);
     state.mobileSelectedTransactionId = state.mobileEditingTransactionId;
     state.mobileEditingTransactionId = "";
   } else if (state.desktopMode && state.desktopEditingTransactionId) {
-    await setDoc(doc(db, "users", state.uid, "transactions", state.desktopEditingTransactionId), payload);
+    await setDoc(userDocumentRef(db, state.uid, "transactions", state.desktopEditingTransactionId), payload);
     state.desktopSelectedTransactionId = state.desktopEditingTransactionId;
   } else {
     const transactionRef = await addDoc(path("transactions"), payload);
@@ -1120,7 +1088,7 @@ async function deleteSelectedMobileTransaction() {
     return;
   }
 
-  await deleteDoc(doc(db, "users", state.uid, "transactions", transaction.id));
+  await deleteDoc(userDocumentRef(db, state.uid, "transactions", transaction.id));
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.mobileSelectedTransactionId = "";
   state.mobileEditingTransactionId = "";
@@ -1311,7 +1279,7 @@ async function deleteSelectedDesktopTransaction() {
     return;
   }
 
-  await deleteDoc(doc(db, "users", state.uid, "transactions", transaction.id));
+  await deleteDoc(userDocumentRef(db, state.uid, "transactions", transaction.id));
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.desktopSelectedTransactionId = "";
   await loadAll();
@@ -1529,7 +1497,7 @@ async function applyRecurringIfNeeded() {
     });
   }
 
-  await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+  await updateDoc(userMetaRef(db, state.uid, "settings"), {
     recurringAppliedMonth: currentMonth,
     snapshotDirtyFromMonth: earlierMonth(state.settings.snapshotDirtyFromMonth, currentMonth) || currentMonth
   });
@@ -2092,7 +2060,7 @@ async function normalizeItemOrders(type, selectedId = "") {
       nextOrder += 10;
     }
     if (getItemOrder(item) !== nextValue) {
-      updates.push(updateDoc(doc(db, "users", state.uid, item.collection, item.id), { order: nextValue }));
+      updates.push(updateDoc(userDocumentRef(db, state.uid, item.collection, item.id), { order: nextValue }));
     }
   });
 
@@ -2194,7 +2162,7 @@ async function saveDesktopSettingsItem(event) {
     };
     if (editing) {
       const previousBalance = Number(editing.balance || 0);
-      await updateDoc(doc(db, "users", state.uid, "accounts", editing.id), payload);
+      await updateDoc(userDocumentRef(db, state.uid, "accounts", editing.id), payload);
       if (previousBalance !== payload.balance) {
         await markSnapshotDirtyFromMonth(getEarliestAccountTransactionMonth(editing.id) || getEarliestTransactionMonth());
       }
@@ -2212,7 +2180,7 @@ async function saveDesktopSettingsItem(event) {
       order
     };
     if (editing) {
-      await updateDoc(doc(db, "users", state.uid, "categories", editing.id), payload);
+      await updateDoc(userDocumentRef(db, state.uid, "categories", editing.id), payload);
       await loadAll();
       await normalizeItemOrders(type, editing.id);
     } else {
@@ -2244,7 +2212,7 @@ async function deleteDesktopSettingsItem() {
     return;
   }
 
-  await deleteDoc(doc(db, "users", state.uid, item.collection, item.id));
+  await deleteDoc(userDocumentRef(db, state.uid, item.collection, item.id));
   state.desktopSettingsSelectedId = "";
   await loadAll();
   renderAll();
@@ -2269,7 +2237,7 @@ async function moveDesktopSettingsItem(direction) {
 
   await Promise.all(
     reorderedItems.map((item, index) =>
-      updateDoc(doc(db, "users", state.uid, item.collection, item.id), {
+      updateDoc(userDocumentRef(db, state.uid, item.collection, item.id), {
         order: (index + 1) * 10
       })
     )
@@ -3726,7 +3694,7 @@ async function saveEditedTransactions() {
       return;
     }
 
-    await setDoc(doc(db, "users", state.uid, "transactions", row.dataset.transactionId), payload);
+    await setDoc(userDocumentRef(db, state.uid, "transactions", row.dataset.transactionId), payload);
     dirtyMonth = earlierMonth(dirtyMonth, earlierMonth(monthKey(transaction.date), monthKey(payload.date)));
   }
 
@@ -4105,7 +4073,7 @@ async function importItemsCsv(event) {
       }
       const payload = { name, type, balance, order };
       if (existing) {
-        await updateDoc(doc(db, "users", state.uid, "accounts", existing.id), payload);
+        await updateDoc(userDocumentRef(db, state.uid, "accounts", existing.id), payload);
         updatedCount += 1;
       } else {
         await addDoc(path("accounts"), { ...payload, createdAt: Date.now() });
@@ -4130,7 +4098,7 @@ async function importItemsCsv(event) {
     const payload = { name, type, order };
     let categoryId = existing?.id || "";
     if (existing) {
-      await updateDoc(doc(db, "users", state.uid, "categories", existing.id), payload);
+      await updateDoc(userDocumentRef(db, state.uid, "categories", existing.id), payload);
       updatedCount += 1;
     } else {
       const itemRef = await addDoc(path("categories"), { ...payload, createdAt: Date.now() });
