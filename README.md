@@ -5,6 +5,12 @@
 
 這是一個以 Firebase Firestore 為資料儲存的前端記帳工具，適合用來管理家庭收支、固定支出與基礎財務分析。
 
+## SQLite 遷移現況
+
+- 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
+- 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
+- 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
+
 ## 目前功能
 
 - 記錄收入、支出與轉帳記錄
