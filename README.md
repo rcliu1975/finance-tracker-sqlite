@@ -12,6 +12,7 @@
 - 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
 - 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
+- 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為未來接上 SQLite backend 預留穩定介面
 - 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
 
 ### SQLite 匯入測試

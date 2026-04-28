@@ -4,17 +4,22 @@
 
 目前分工：
 
+- `app-data-backend.js`
+  前端固定依賴入口。目前先指向 Firebase 實作；之後切到 SQLite 時，優先替換這層。
 - `firebase-backend.js`
   集中 Firebase SDK import、`firebase-config.js` 載入，以及 Firestore / Auth 初始化。
+- `firebase-data-backend.js`
+  Firebase 版資料 backend factory，把 `db/uid` 綁成前端可直接呼叫的 API。
 - `firestore-user-paths.js`
   集中 `users/{uid}/...` 文件與集合路徑 helper。
 
-目前已經有初步的 repository abstraction，先把下列責任從 `app.js` 抽出去：
+目前已經有初步的 backend abstraction，先把下列責任從 `app.js` 抽出去：
 
 1. SDK 依賴來源
 2. Firestore 路徑結構
 3. 主要讀取 query
 4. 交易、設定與項目管理的核心寫入 API
+5. `db/uid` 綁定與 app-facing method 形狀
 
 下一步應該是繼續把剩餘的特殊流程也收進 repository，例如：
 
