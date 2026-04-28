@@ -10,6 +10,7 @@
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
 - 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
 - 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
+- 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
 - 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
 
@@ -36,6 +37,12 @@ npm run sqlite:import-csv -- \
 
 ```bash
 npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
+```
+
+如果要重建 SQLite 版月快照：
+
+```bash
+npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --apply
 ```
 
 ## 目前功能
@@ -68,6 +75,7 @@ npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
 - `scripts/generate-firebase-config.js`: 依 `.env` 產生 `firebase-config.js`
 - `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
 - `scripts/import-csv-to-sqlite.py`: 把既有項目 / 交易 CSV 直接匯入 SQLite 資料庫
+- `scripts/rebuild-sqlite-snapshots.py`: 依 SQLite 交易資料重建 `monthly_snapshots`
 - `scripts/verify-sqlite-db.py`: 驗證產生出的 SQLite 資料庫筆數與外鍵狀態
 - `scripts/rebuild-monthly-snapshots.js`: 重建 `monthlySnapshots`，支援 dirty month、Emulator 與正式 Firestore
 
