@@ -8,3 +8,6 @@ chrome-dom.txt
 edge-dom.txt
 firebase-debug.log
 firestore-debug.log
+*.db
+*.sqlite
+*.sqlite3

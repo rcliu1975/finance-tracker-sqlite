@@ -9,7 +9,27 @@
 
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
 - 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
+- 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
 - 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
+
+### SQLite 匯入測試
+
+如果你已經有既有的項目 / 交易 CSV，可以直接建立一個 SQLite 測試資料庫：
+
+```bash
+npm run sqlite:import-csv -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --items-csv ~/item_2025_UTF-8_import.csv \
+  --transactions-csv ~/transactionP-2025_utf-8_import.csv \
+  --replace
+```
+
+說明：
+
+- 這只會讀取你指定的 CSV，不會把 CSV 放進 repo
+- `--db` 建議指定在 repo 外部的位置
+- `--replace` 會覆蓋既有資料庫檔
+- 預設會建立單一使用者 `local-user`
 
 ## 目前功能
 
@@ -40,6 +60,7 @@
 - `scripts/cleanup-orphan-users.js`: 比對 Firebase Authentication 與 Firestore `users/{uid}`，清理不存在帳號的使用者資料
 - `scripts/generate-firebase-config.js`: 依 `.env` 產生 `firebase-config.js`
 - `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
+- `scripts/import-csv-to-sqlite.py`: 把既有項目 / 交易 CSV 直接匯入 SQLite 資料庫
 - `scripts/rebuild-monthly-snapshots.js`: 重建 `monthlySnapshots`，支援 dirty month、Emulator 與正式 Firestore
 
 ## 目前介面模式
