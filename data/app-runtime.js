@@ -15,7 +15,7 @@ export async function loadAppRuntime() {
     const localUser = {
       uid: localUserId,
       email: "",
-      displayName: "Local SQLite User",
+      displayName: "SQLite 本機模式",
       isLocalUser: true
     };
     return {
@@ -26,6 +26,7 @@ export async function loadAppRuntime() {
       configFileName: "firebase-config.js",
       providerKey,
       providerLabel: "SQLite",
+      modeNotice: "目前使用本機記憶體版 SQLite backend，重新整理頁面後資料不保留。",
       supportsEmailAuth: false,
       supportsSignOut: false,
       observeAuthState(callback) {
@@ -58,6 +59,7 @@ export async function loadAppRuntime() {
     configFileName: "firebase-config.js",
     providerKey,
     providerLabel: "Firebase",
+    modeNotice: "",
     supportsEmailAuth: true,
     supportsSignOut: true,
     observeAuthState(callback) {

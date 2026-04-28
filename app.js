@@ -29,7 +29,7 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 const appRuntime = await loadAppRuntime();
-const { db, bootstrapError: runtimeBootstrapError, configFileName, hasConfig: hasBackendConfig, providerLabel } = appRuntime;
+const { db, bootstrapError: runtimeBootstrapError, configFileName, hasConfig: hasBackendConfig, modeNotice, providerLabel } = appRuntime;
 const waitingProviderStatus = `等待 ${providerLabel} 連線`;
 const dataBackend = createAppDataBackend({
   getDb: () => db,
@@ -43,6 +43,10 @@ if (hasBackendConfig) {
 
 if (runtimeBootstrapError) {
   document.getElementById("authStatus").textContent = `找不到 ${configFileName}，請先完成設定。`;
+}
+
+if (modeNotice) {
+  document.getElementById("authError").textContent = modeNotice;
 }
 
 const DEFAULT_CATEGORIES = [
