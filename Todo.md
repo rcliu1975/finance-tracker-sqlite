@@ -1,3 +1,14 @@
+## SQLite Migration
+
+1. 確認 SQLite 版是否保留 `user_id` 多使用者欄位，或改成單使用者本機資料庫
+2. 寫 Firestore -> SQLite 匯出 / 轉檔腳本，至少能轉 `accounts`、`categories`、`transactions`、`recurring`、`monthlySnapshots`、`settings`
+3. 抽出 data-access layer，先把 `app.js` 內 `collection/doc/getDocs/setDoc/updateDoc` 集中到單一模組
+4. 先做 `read-only` 路徑切換，讓總覽、帳戶、分類、記錄列表可以從 SQLite 讀資料
+5. 再補 `create/update/delete` 寫入路徑，最後移除前端對 Firestore SDK 的直接依賴
+6. 決定認證策略：
+   - 若是本機單人版，可移除 Firebase Auth
+   - 若仍要多使用者同步，再另外定義同步層，不直接綁回 Firestore 文件結構
+
 ## P1
 
 1. 拆 `loadAll()`，避免小變更也走全量 reload
