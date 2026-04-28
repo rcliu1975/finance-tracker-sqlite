@@ -6,10 +6,19 @@ Rebuild monthly snapshots inside the SQLite migration database.
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 import time
 from pathlib import Path
+import json
+
+from sqlite_migration_lib import (
+    connect_sqlite,
+    infer_transaction_type,
+    is_expense_category_type,
+    is_income_category_type,
+    list_months,
+    month_key,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,65 +28,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--from-month", default="", help="Optional YYYY-MM lower bound.")
     parser.add_argument("--apply", action="store_true", help="Persist rebuilt snapshots.")
     return parser.parse_args()
-
-
-def month_key(date_text: str) -> str:
-    return str(date_text or "")[:7]
-
-
-def is_income_category_type(item_type: str) -> bool:
-    return item_type in {"income", "nonOperatingIncome"}
-
-
-def is_expense_category_type(item_type: str) -> bool:
-    return item_type in {"expense", "nonOperatingExpense"}
-
-
-def get_category_flow_type(item_type: str) -> str:
-    if is_income_category_type(item_type):
-        return "income"
-    if is_expense_category_type(item_type):
-        return "expense"
-    return item_type
-
-
-def infer_transaction_type(from_type: str, to_type: str) -> str:
-    route_type_map = {
-        "asset": {
-            "asset": "transfer",
-            "liability": "payment",
-            "expense": "expense",
-        },
-        "liability": {
-            "asset": "advance",
-            "liability": "transfer",
-            "expense": "expense",
-        },
-        "expense": {
-            "asset": "refund",
-            "liability": "refund",
-        },
-        "income": {
-            "asset": "income",
-            "liability": "payment",
-            "expense": "expense",
-        },
-    }
-    return route_type_map.get(get_category_flow_type(from_type), {}).get(get_category_flow_type(to_type), "transfer")
-
-
-def list_months(from_month: str, to_month: str) -> list[str]:
-    months = []
-    year, month = map(int, from_month.split("-"))
-    end_year, end_month = map(int, to_month.split("-"))
-    while (year, month) <= (end_year, end_month):
-        months.append(f"{year:04d}-{month:02d}")
-        month += 1
-        if month > 12:
-            year += 1
-            month = 1
-    return months
-
 
 def load_items(connection: sqlite3.Connection, user_id: str) -> tuple[list[dict], list[dict]]:
     accounts = [
@@ -296,8 +246,7 @@ def main() -> int:
     if not db_path.exists():
         raise FileNotFoundError(f"找不到資料庫：{db_path}")
 
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
+    connection = connect_sqlite(db_path)
     try:
         settings = connection.execute(
             "SELECT snapshot_dirty_from_month FROM user_settings WHERE user_id = ?",

@@ -6,20 +6,10 @@ Verify a generated SQLite database at a coarse level.
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
+import sqlite3
 
-
-TABLES = [
-    "users",
-    "user_settings",
-    "accounts",
-    "categories",
-    "common_summaries",
-    "transactions",
-    "recurring_entries",
-    "monthly_snapshots",
-]
+from sqlite_migration_lib import TABLES, connect_sqlite
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,8 +24,7 @@ def main() -> int:
     if not db_path.exists():
         raise FileNotFoundError(f"找不到資料庫：{db_path}")
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path)
     try:
         print(f"DB: {db_path}")
         print("table counts:")

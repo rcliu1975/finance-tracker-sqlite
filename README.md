@@ -45,6 +45,14 @@ npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
 npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --apply
 ```
 
+建議依序執行：
+
+1. `sqlite:import-csv`
+2. `sqlite:rebuild-snapshots --apply`
+3. `sqlite:verify-db`
+
+不要同時對同一顆 `.db` 平行執行 `--replace` 匯入、快照重建與驗證。
+
 ## 目前功能
 
 - 記錄收入、支出與轉帳記錄
