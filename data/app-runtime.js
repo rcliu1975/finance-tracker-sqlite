@@ -18,6 +18,8 @@ export async function loadAppRuntime() {
     auth,
     bootstrapError: loadError,
     hasConfig: Boolean(firebaseConfig),
+    configFileName: "firebase-config.js",
+    providerLabel: "Firebase",
     observeAuthState(callback) {
       if (!auth) {
         return () => {};

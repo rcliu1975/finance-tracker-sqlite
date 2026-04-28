@@ -33,10 +33,15 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 const appRuntime = await loadAppRuntime();
-const { db, bootstrapError: firebaseBootstrapError, hasConfig: hasBackendConfig } = appRuntime;
+const { db, bootstrapError: runtimeBootstrapError, configFileName, hasConfig: hasBackendConfig, providerLabel } = appRuntime;
+const waitingProviderStatus = `等待 ${providerLabel} 連線`;
 
-if (firebaseBootstrapError) {
-  document.getElementById("authStatus").textContent = "找不到 firebase-config.js，請先完成設定。";
+if (hasBackendConfig) {
+  document.getElementById("authStatus").textContent = waitingProviderStatus;
+}
+
+if (runtimeBootstrapError) {
+  document.getElementById("authStatus").textContent = `找不到 ${configFileName}，請先完成設定。`;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -254,9 +259,9 @@ if (hasBackendConfig) {
 }
 
 window.setTimeout(() => {
-  if (!authInitialized && document.getElementById("authStatus")?.textContent === "等待 Firebase 連線") {
-    document.getElementById("authStatus").textContent = "Firebase 初始化逾時";
-    document.getElementById("authError").textContent = "前端沒有成功完成 Firebase 初始化，請重新整理頁面；若仍發生，請回報這一行訊息。";
+  if (!authInitialized && document.getElementById("authStatus")?.textContent === waitingProviderStatus) {
+    document.getElementById("authStatus").textContent = `${providerLabel} 初始化逾時`;
+    document.getElementById("authError").textContent = `前端沒有成功完成 ${providerLabel} 初始化，請重新整理頁面；若仍發生，請回報這一行訊息。`;
   }
 }, 5000);
 
