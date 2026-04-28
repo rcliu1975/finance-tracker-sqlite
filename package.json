@@ -6,6 +6,7 @@
     "config:generate": "node scripts/generate-firebase-config.js",
     "import:records": "node scripts/import-records-cli.js",
     "sqlite:import-csv": "python3 scripts/import-csv-to-sqlite.py",
+    "sqlite:verify-db": "python3 scripts/verify-sqlite-db.py",
     "rebuild:monthly-snapshots": "node scripts/rebuild-monthly-snapshots.js",
     "serve": "npm run config:generate && python3 -m http.server 5173 --bind 0.0.0.0",
     "cleanup:orphan-users": "node scripts/cleanup-orphan-users.js",
