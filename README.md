@@ -1,5 +1,8 @@
 # 家庭理財記帳
 
+> 這個 repo 是從 `finance-tracking` 拆出的 `SQLite` 遷移專案。  
+> 目前主程式與工具鏈仍以 Firebase / Firestore 為基底，尚未完成 SQLite 化；接下來的修改會在這個 repo 獨立進行。
+
 這是一個以 Firebase Firestore 為資料儲存的前端記帳工具，適合用來管理家庭收支、固定支出與基礎財務分析。
 
 ## 目前功能

@@ -1,5 +1,5 @@
 {
-  "name": "finance-tracking",
+  "name": "finance-tracker-sqlite",
   "private": true,
   "version": "1.0.0",
   "scripts": {
