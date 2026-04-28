@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>家庭理財記帳</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body class="mobile-mode">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">MoneyBook</p>
+      </div>
+      <div class="auth-panel">
+        <form id="emailAuthForm" class="email-auth-form">
+          <input name="email" type="email" autocomplete="email" placeholder="Email" required />
+          <input name="password" type="password" autocomplete="current-password" placeholder="Password" required />
+          <div class="auth-actions">
+            <button name="action" value="login" type="submit" class="auth-btn">登入</button>
+            <button name="action" value="register" type="submit" class="auth-btn auth-btn-secondary">註冊</button>
+          </div>
+        </form>
+        <div id="authStatus" class="status-pill auth-feedback">等待 Firebase 連線</div>
+        <div id="signedInControls" class="signed-in-controls hidden">
+          <button id="desktopViewBtn" class="auth-btn auth-btn-secondary" type="button">桌面版</button>
+          <button id="signOutBtn" class="auth-btn" type="button">登出</button>
+        </div>
+        <p id="authError" class="auth-error"></p>
+      </div>
+    </header>
+
+    <div id="appShell" class="desktop-shell hidden">
+      <aside id="desktopSidebar" class="desktop-sidebar hidden" aria-label="桌面版側欄">
+        <div class="desktop-sidebar-top">
+          <div class="desktop-date-controls">
+            <select id="desktopYearSelect" aria-label="年份"></select>
+            <select id="desktopMonthSelect" aria-label="月份">
+              <option value="01">01月</option>
+              <option value="02">02月</option>
+              <option value="03">03月</option>
+              <option value="04" selected>04月</option>
+              <option value="05">05月</option>
+              <option value="06">06月</option>
+              <option value="07">07月</option>
+              <option value="08">08月</option>
+              <option value="09">09月</option>
+              <option value="10">10月</option>
+              <option value="11">11月</option>
+              <option value="12">12月</option>
+            </select>
+          </div>
+          <div class="desktop-date-actions">
+            <button type="button">上個月</button>
+            <button type="button">下個月</button>
+            <button type="button">本月</button>
+          </div>
+        </div>
+
+        <button id="desktopNetWorthCard" class="desktop-balance-card" type="button">
+          <p>總資產負債結餘</p>
+          <h2 id="desktopNetWorth">$0</h2>
+        </button>
+
+        <div id="desktopAccountTree" class="desktop-account-tree"></div>
+      </aside>
+
+      <div class="desktop-workspace">
+        <nav class="tabs" aria-label="主要功能分頁">
+          <button class="tab-btn active" data-tab="ledger">新增</button>
+          <button class="tab-btn" data-tab="transactions">列表</button>
+          <button class="tab-btn" data-tab="overview">總覽</button>
+        </nav>
+
+        <div id="desktopActionBar" class="desktop-action-bar hidden">
+          <button id="desktopSettingsBtn" type="button">項目設定</button>
+          <span class="desktop-action-divider" aria-hidden="true"></span>
+          <button id="desktopAddBtn" type="button">新增記錄</button>
+          <button id="desktopEditRecordBtn" type="button">編輯記錄</button>
+          <button id="desktopDeleteBtn" type="button">刪除記錄</button>
+          <span class="desktop-action-spacer" aria-hidden="true"></span>
+          <button id="desktopEditBtn" type="button">編輯列表</button>
+          <button id="desktopSaveBtn" class="hidden" type="button">儲存列表</button>
+          <button id="desktopCancelEditBtn" class="hidden" type="button">取消編輯</button>
+        </div>
+
+        <div id="desktopTransactionModal" class="desktop-modal hidden" aria-hidden="true">
+          <div class="desktop-modal-panel" role="dialog" aria-modal="true" aria-labelledby="desktopTransactionTitle">
+            <div class="desktop-modal-header">
+              <h3 id="desktopTransactionTitle">新增記錄</h3>
+              <button id="desktopModalCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
+            </div>
+            <form id="desktopTransactionForm" class="desktop-transaction-form">
+              <label class="desktop-half-field">
+                日期
+                <input type="date" name="date" required />
+              </label>
+              <label class="desktop-half-field">
+                從項目
+                <div class="split-field">
+                  <select name="sourceType" id="desktopSourceTypeSelect" required></select>
+                  <select name="sourceId" id="desktopSourceSelect" required></select>
+                </div>
+              </label>
+              <label class="desktop-half-field">
+                至項目
+                <div class="split-field">
+                  <select name="destinationType" id="desktopDestinationTypeSelect" required></select>
+                  <select name="destinationId" id="desktopDestinationSelect" required></select>
+                </div>
+              </label>
+              <label class="desktop-half-field">
+                金額
+                <input type="number" name="amount" min="1" step="1" required />
+              </label>
+              <label>
+                摘要
+                <div class="summary-field">
+                  <input id="desktopSummaryInput" type="text" name="note" list="commonSummaryList" placeholder="補充說明這筆記錄用途" />
+                  <button id="desktopSaveSummaryBtn" type="button">存為常用</button>
+                  <div id="desktopSummaryMenu" class="summary-menu hidden"></div>
+                </div>
+              </label>
+              <label>
+                備註
+                <textarea name="memo" rows="3" placeholder="補充較完整的說明"></textarea>
+              </label>
+              <div class="desktop-modal-actions">
+                <button id="desktopModalCancelBtn" type="button">取消</button>
+                <button type="submit">新增記錄</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="desktopSettingsModal" class="desktop-modal hidden" aria-hidden="true">
+          <div class="desktop-modal-panel desktop-settings-panel" role="dialog" aria-modal="true" aria-labelledby="desktopSettingsTitle">
+            <div class="desktop-modal-header">
+              <h3 id="desktopSettingsTitle">項目設定</h3>
+              <button id="desktopSettingsCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
+            </div>
+            <div id="desktopSettingsTabs" class="desktop-settings-tabs"></div>
+            <div class="desktop-settings-body">
+              <p class="section-hint desktop-section-hint">買房等一次性項目可先建立資產與負債的初始值，月付再拆成本金與利息記錄。</p>
+              <div id="desktopSettingsList" class="desktop-settings-list"></div>
+            </div>
+            <div class="desktop-settings-actions">
+              <button id="desktopItemAddBtn" type="button">＋ 新增項目</button>
+              <button id="desktopItemEditBtn" type="button" disabled>✎ 修改項目</button>
+              <button id="desktopItemDeleteBtn" type="button" disabled>－ 刪除項目</button>
+              <button id="desktopItemMoveUpBtn" type="button" disabled>位置上移</button>
+              <button id="desktopItemMoveDownBtn" type="button" disabled>位置下移</button>
+              <button id="desktopExportItemsBtn" type="button">匯出項目</button>
+              <input id="itemsImportInput" class="hidden" type="file" accept=".csv,text/csv" />
+              <button id="desktopEditSummariesBtn" type="button">編輯常用摘要</button>
+              <button id="desktopSettingsDoneBtn" type="button">關閉</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="commonSummaryModal" class="desktop-modal hidden" aria-hidden="true">
+          <div class="desktop-modal-panel desktop-item-panel" role="dialog" aria-modal="true" aria-labelledby="commonSummaryTitle">
+            <div class="desktop-modal-header">
+              <h3 id="commonSummaryTitle">編輯常用摘要</h3>
+              <button id="commonSummaryCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
+            </div>
+            <form id="commonSummaryForm" class="desktop-transaction-form">
+              <div id="commonSummaryFields" class="common-summary-fields"></div>
+              <div class="desktop-modal-actions">
+                <button id="commonSummaryCancelBtn" type="button">取消</button>
+                <button type="submit">儲存</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="desktopItemModal" class="desktop-modal hidden" aria-hidden="true">
+          <div class="desktop-modal-panel desktop-item-panel" role="dialog" aria-modal="true" aria-labelledby="desktopItemTitle">
+            <div class="desktop-modal-header">
+              <h3 id="desktopItemTitle">新增項目</h3>
+              <button id="desktopItemCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
+            </div>
+            <form id="desktopItemForm" class="desktop-transaction-form">
+              <label>
+                項目名稱
+                <input name="name" required placeholder="例如：現金、薪資收入、餐飲費" />
+              </label>
+              <label id="desktopItemBalanceField">
+                期初餘額
+                <input name="balance" type="number" value="0" />
+              </label>
+              <label>
+                次序
+                <input name="order" type="number" min="0" step="1" value="100" />
+              </label>
+              <div class="desktop-modal-actions">
+                <button id="desktopItemCancelBtn" type="button">取消</button>
+                <button type="submit">儲存</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="messageModal" class="desktop-modal hidden" aria-hidden="true">
+          <div class="desktop-modal-panel desktop-message-panel" role="dialog" aria-modal="true" aria-labelledby="messageModalTitle">
+            <div class="desktop-modal-header">
+              <h3 id="messageModalTitle">訊息</h3>
+              <button id="messageModalCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
+            </div>
+            <div class="desktop-transaction-form">
+              <pre id="messageModalBody" class="message-modal-body"></pre>
+              <div class="desktop-modal-actions">
+                <button id="messageModalDoneBtn" type="button">關閉</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <main>
+          <section id="overview" class="tab-panel">
+        <div class="cards">
+          <article class="card">
+            <h3>淨資產</h3>
+            <p id="netWorth" class="metric">$0</p>
+          </article>
+          <article class="card">
+            <h3>本月收入</h3>
+            <p id="monthIncome" class="metric">$0</p>
+          </article>
+          <article class="card">
+            <h3>本月支出</h3>
+            <p id="monthExpense" class="metric">$0</p>
+          </article>
+        </div>
+
+        <div id="budgetCard" class="card">
+          <h3>本月預算使用率</h3>
+          <div class="budget-wrap">
+            <div class="budget-bar">
+              <div id="budgetFill"></div>
+            </div>
+            <p id="budgetText">尚未設定每月預算</p>
+          </div>
+        </div>
+
+        <div class="card overview-settings-card">
+          <button id="overviewSettingsBtn" type="button">設定</button>
+        </div>
+
+        <div class="card">
+          <h3>本月分類支出</h3>
+          <div class="chart-wrap">
+            <canvas id="pieChart"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>近六個月收支</h3>
+          <div class="chart-wrap chart-wrap-wide">
+            <canvas id="barChart"></canvas>
+          </div>
+        </div>
+          </section>
+
+          <section id="ledger" class="tab-panel active">
+        <div class="card">
+          <div class="mobile-transaction-header">
+            <h3>新增記錄</h3>
+            <label class="mobile-header-date">
+              日期
+              <input id="mobileHeaderDate" type="date" form="transactionForm" />
+            </label>
+          </div>
+          <form id="transactionForm" class="grid-form">
+            <label class="mobile-form-date tablet-half tablet-one-third">
+              日期
+              <input type="date" name="date" required />
+            </label>
+            <label class="tablet-half tablet-one-third">
+              從項目
+              <div class="split-field">
+                <select name="sourceType" id="sourceTypeSelect" required></select>
+                <select name="sourceId" id="sourceSelect" required></select>
+              </div>
+            </label>
+            <label class="tablet-half tablet-one-third">
+              至項目
+              <div class="split-field">
+                <select name="destinationType" id="destinationTypeSelect" required></select>
+                <select name="destinationId" id="destinationSelect" required></select>
+              </div>
+            </label>
+            <label class="tablet-half tablet-one-third">
+              金額
+              <input type="number" name="amount" min="1" step="1" required />
+            </label>
+            <label class="full tablet-two-thirds">
+              摘要
+              <div class="summary-field">
+                <input id="mobileSummaryInput" type="text" name="note" list="commonSummaryList" placeholder="補充說明這筆記錄用途" />
+                <button id="mobileSaveSummaryBtn" type="button">存為常用</button>
+                <div id="mobileSummaryMenu" class="summary-menu hidden"></div>
+              </div>
+            </label>
+            <label class="full">
+              備註
+              <textarea name="memo" rows="3" placeholder="補充較完整的說明"></textarea>
+            </label>
+            <button id="cancelMobileEditBtn" class="hidden" type="button">取消修改</button>
+            <button type="submit">新增記錄</button>
+          </form>
+        </div>
+          </section>
+
+          <section id="transactions" class="tab-panel">
+        <div class="card">
+          <h3>記錄列表</h3>
+          <div class="transaction-toolbar">
+            <div class="filter-group" id="transactionRangeFilter">
+              <button type="button" class="filter-btn active" data-range="week">1 星期</button>
+              <button type="button" class="filter-btn" data-range="month">1 個月</button>
+              <button type="button" class="filter-btn" data-range="quarter">3 個月</button>
+            </div>
+            <div class="table-actions">
+              <button id="mobileEditTransactionBtn" type="button" disabled>編輯</button>
+              <button id="mobileDeleteTransactionBtn" type="button" disabled>刪除</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>日期(星期)</th>
+                  <th>從項目</th>
+                  <th>類型</th>
+                  <th>至項目</th>
+                  <th>金額</th>
+                  <th>摘要</th>
+                </tr>
+              </thead>
+              <tbody id="transactionTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+          </section>
+
+          <section id="settings" class="tab-panel">
+        <div class="card">
+          <h3>新增項目</h3>
+          <p class="section-hint">一次性的大額取得項目，例如買房，可先在資產與負債項目建立初始值。</p>
+          <form id="mobileItemForm" class="grid-form two-col">
+            <label>
+              類別
+              <select name="type" id="mobileItemTypeSelect">
+                <option value="asset">資產</option>
+                <option value="liability">負債</option>
+                <option value="income">收入</option>
+                <option value="expense">支出</option>
+                <option value="nonOperatingIncome">業外收入</option>
+                <option value="nonOperatingExpense">業外支出</option>
+              </select>
+            </label>
+            <label>
+              項目名稱
+              <input name="name" required placeholder="輸入項目名稱" />
+            </label>
+            <label id="mobileItemBalanceField">
+              初始餘額
+              <input type="number" name="balance" value="0" />
+            </label>
+            <label>
+              次序
+              <input type="number" name="order" min="0" step="1" value="100" />
+            </label>
+            <button type="submit">新增項目</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>每月預算</h3>
+          <form id="budgetForm" class="grid-form two-col">
+            <label>
+              每月預算上限
+              <input type="number" name="monthlyBudget" min="0" required />
+            </label>
+            <button type="submit">儲存預算</button>
+          </form>
+        </div>
+
+          </section>
+        </main>
+      </div>
+
+      <div id="desktopLoadingOverlay" class="desktop-loading-overlay hidden" aria-live="polite" aria-hidden="true">
+        <div class="desktop-loading-card">
+          <div class="desktop-loading-spinner" aria-hidden="true"></div>
+          <p id="desktopLoadingText">載入桌面版資料中...</p>
+        </div>
+      </div>
+    </div>
+    <datalist id="commonSummaryList"></datalist>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

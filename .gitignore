@@ -1,0 +1,10 @@
+firebase-config.js
+.env
+.env.*
+!.env.example
+.firebase/
+node_modules/
+chrome-dom.txt
+edge-dom.txt
+firebase-debug.log
+firestore-debug.log

@@ -1,0 +1,153 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function ownsUserData(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isNumber(value) {
+      return value is int || value is float;
+    }
+
+    function isNonEmptyString(value) {
+      return value is string && value.size() > 0;
+    }
+
+    function isMonthKey(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}$');
+    }
+
+    function isDateKey(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isAccountType(value) {
+      return value in ['asset', 'liability'];
+    }
+
+    function isCategoryType(value) {
+      return value in ['income', 'expense', 'nonOperatingIncome', 'nonOperatingExpense'];
+    }
+
+    function isTransactionItem(item) {
+      return item is map
+        && item.kind in ['account', 'category']
+        && isNonEmptyString(item.id)
+        && (!('name' in item) || item.name is string)
+        && (!('type' in item) || item.type is string);
+    }
+
+    function isAccountDocument(data) {
+      return data is map
+        && isNonEmptyString(data.name)
+        && isAccountType(data.type)
+        && isNumber(data.balance)
+        && isNumber(data.order)
+        && (!('createdAt' in data) || isNumber(data.createdAt));
+    }
+
+    function isCategoryDocument(data) {
+      return data is map
+        && isNonEmptyString(data.name)
+        && isCategoryType(data.type)
+        && isNumber(data.order)
+        && (!('createdAt' in data) || isNumber(data.createdAt));
+    }
+
+    function isTransactionDocument(data) {
+      return data is map
+        && isDateKey(data.date)
+        && isTransactionItem(data.fromItem)
+        && isTransactionItem(data.toItem)
+        && isNumber(data.amount)
+        && data.amount > 0
+        && (!('note' in data) || data.note is string)
+        && (!('memo' in data) || data.memo is string);
+    }
+
+    function isRecurringDocument(data) {
+      return data is map
+        && isNonEmptyString(data.name)
+        && isNonEmptyString(data.accountId)
+        && isNonEmptyString(data.categoryId)
+        && isNumber(data.amount)
+        && data.amount > 0
+        && isNumber(data.day)
+        && data.day >= 1
+        && data.day <= 31;
+    }
+
+    function isSettingsDocument(data) {
+      return data is map
+        && isNumber(data.monthlyBudget)
+        && data.monthlyBudget >= 0
+        && data.recurringAppliedMonth is string
+        && data.snapshotDirtyFromMonth is string
+        && (data.recurringAppliedMonth == '' || isMonthKey(data.recurringAppliedMonth))
+        && (data.snapshotDirtyFromMonth == '' || isMonthKey(data.snapshotDirtyFromMonth));
+    }
+
+    function isMonthlySnapshotDocument(data) {
+      return data is map
+        && isMonthKey(data.month)
+        && data.closingBalances is map
+        && data.categoryTotals is map
+        && isNumber(data.incomeTotal)
+        && isNumber(data.expenseTotal)
+        && isNumber(data.netWorth)
+        && isNumber(data.rebuiltAt)
+        && data.sourceLastTransactionDate is string
+        && (data.sourceLastTransactionDate == '' || isDateKey(data.sourceLastTransactionDate));
+    }
+
+    match /users/{uid} {
+      allow read: if ownsUserData(uid);
+      allow write: if false;
+
+      match /accounts/{accountId} {
+        allow read: if ownsUserData(uid);
+        allow create, update: if ownsUserData(uid) && isAccountDocument(request.resource.data);
+        allow delete: if ownsUserData(uid);
+      }
+
+      match /categories/{categoryId} {
+        allow read: if ownsUserData(uid);
+        allow create, update: if ownsUserData(uid) && isCategoryDocument(request.resource.data);
+        allow delete: if ownsUserData(uid);
+      }
+
+      match /transactions/{transactionId} {
+        allow read: if ownsUserData(uid);
+        allow create, update: if ownsUserData(uid) && isTransactionDocument(request.resource.data);
+        allow delete: if ownsUserData(uid);
+      }
+
+      match /recurring/{recurringId} {
+        allow read: if ownsUserData(uid);
+        allow create, update: if ownsUserData(uid) && isRecurringDocument(request.resource.data);
+        allow delete: if ownsUserData(uid);
+      }
+
+      match /monthlySnapshots/{snapshotId} {
+        allow read: if ownsUserData(uid);
+        allow create, update: if ownsUserData(uid) && isMonthlySnapshotDocument(request.resource.data);
+        allow delete: if ownsUserData(uid);
+      }
+
+      match /meta/settings {
+        allow read: if ownsUserData(uid);
+        allow create, update: if ownsUserData(uid) && isSettingsDocument(request.resource.data);
+        allow delete: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
