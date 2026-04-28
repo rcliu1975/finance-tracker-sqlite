@@ -25,6 +25,12 @@ export async function loadSettingsState(db, uid) {
   return settingsSnap.exists() ? settingsSnap.data() || {} : {};
 }
 
+export async function loadStoredSettingsState(db, uid) {
+  const settingsRef = userMetaRef(db, uid, "settings");
+  const settingsSnap = await getDoc(settingsRef);
+  return settingsSnap.exists() ? settingsSnap.data() || {} : null;
+}
+
 export async function loadReferenceData(db, uid) {
   const [accounts, categories, recurring] = await Promise.all([
     loadCollectionItems(db, uid, "accounts"),

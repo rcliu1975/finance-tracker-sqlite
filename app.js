@@ -1,21 +1,20 @@
 import {
   createUserWithEmailAndPassword,
-  getDoc,
-  getDocs,
   initializeFirebaseServices,
   loadFirebaseBootstrap,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut
 } from "./data/firebase-backend.js";
-import { userCollectionRef, userMetaRef } from "./data/firestore-user-paths.js";
 import {
   batchUpdateUserCollectionOrders,
   createUserCollectionDocument,
   deleteUserCollectionDocument,
+  loadCollectionItems,
   loadHistoryMetadata,
   loadLatestSnapshotBeforeMonth,
   loadReferenceData,
+  loadStoredSettingsState,
   loadSettingsState,
   loadSnapshotByMonth,
   loadTransactionsByDateRange,
@@ -338,10 +337,6 @@ function getEarliestAccountTransactionMonth(accountId) {
     .sort()[0] || "";
 }
 
-function path(name) {
-  return userCollectionRef(db, state.uid, name);
-}
-
 async function bootstrap() {
   await ensureDefaults();
   await deleteLegacyTransactions();
@@ -355,13 +350,12 @@ async function bootstrap() {
 }
 
 async function ensureDefaults() {
-  const settingsRef = userMetaRef(db, state.uid, "settings");
-  const [settingsSnap, initialCategoriesSnap, accountsSnap] = await Promise.all([
-    getDoc(settingsRef),
-    getDocs(path("categories")),
-    getDocs(path("accounts"))
+  const [storedSettings, initialCategories, accounts] = await Promise.all([
+    loadStoredSettingsState(db, state.uid),
+    loadCollectionItems(db, state.uid, "categories"),
+    loadCollectionItems(db, state.uid, "accounts")
   ]);
-  if (!settingsSnap.exists()) {
+  if (!storedSettings) {
     state.settings = {
       monthlyBudget: 0,
       recurringAppliedMonth: "",
@@ -371,36 +365,35 @@ async function ensureDefaults() {
     await replaceSettingsState(db, state.uid, state.settings);
   } else {
     state.settings = {
-      monthlyBudget: Number(settingsSnap.data()?.monthlyBudget || 0),
-      recurringAppliedMonth: String(settingsSnap.data()?.recurringAppliedMonth || ""),
-      snapshotDirtyFromMonth: String(settingsSnap.data()?.snapshotDirtyFromMonth || ""),
-      legacyTransactionsCheckedAt: Number(settingsSnap.data()?.legacyTransactionsCheckedAt || 0)
+      monthlyBudget: Number(storedSettings.monthlyBudget || 0),
+      recurringAppliedMonth: String(storedSettings.recurringAppliedMonth || ""),
+      snapshotDirtyFromMonth: String(storedSettings.snapshotDirtyFromMonth || ""),
+      legacyTransactionsCheckedAt: Number(storedSettings.legacyTransactionsCheckedAt || 0)
     };
   }
 
-  let categoriesSnap = initialCategoriesSnap;
-  if (categoriesSnap.empty) {
+  let categories = initialCategories;
+  if (!categories.length) {
     for (const category of DEFAULT_CATEGORIES) {
       await createUserCollectionDocument(db, state.uid, "categories", { ...category, createdAt: Date.now() });
     }
-    categoriesSnap = await getDocs(path("categories"));
+    categories = await loadCollectionItems(db, state.uid, "categories");
   } else {
-    await ensureDefaultCategories(categoriesSnap);
-    categoriesSnap = await getDocs(path("categories"));
+    await ensureDefaultCategories(categories);
+    categories = await loadCollectionItems(db, state.uid, "categories");
   }
 
-  await ensureProtectedItems(accountsSnap, categoriesSnap);
+  await ensureProtectedItems(accounts, categories);
 }
 
-async function ensureDefaultCategories(categoriesSnap) {
-  const existing = categoriesSnap.docs.map((item) => item.data());
+async function ensureDefaultCategories(categories) {
   await Promise.all(
     DEFAULT_CATEGORIES.map(async (category) => {
       const protectedItem = PROTECTED_ITEMS.find(
         (item) => item.collection === "categories" && item.type === category.type && item.name === category.name
       );
       const validNames = [category.name, ...(protectedItem?.aliases || [])];
-      const exists = existing.some((item) => item.type === category.type && validNames.includes(String(item.name || "")));
+      const exists = categories.some((item) => item.type === category.type && validNames.includes(String(item.name || "")));
       if (exists) {
         return;
       }
@@ -409,16 +402,15 @@ async function ensureDefaultCategories(categoriesSnap) {
   );
 }
 
-async function ensureProtectedItems(accountsSnap, categoriesSnap) {
+async function ensureProtectedItems(accounts, categories) {
   await Promise.all(
     PROTECTED_ITEMS.map(async (protectedItem) => {
-      const snap = protectedItem.collection === "accounts" ? accountsSnap : categoriesSnap;
-      const match = snap.docs.find((item) => {
-        const data = item.data();
-        const type = protectedItem.collection === "accounts" ? inferAccountType(data) : data.type;
+      const items = protectedItem.collection === "accounts" ? accounts : categories;
+      const match = items.find((item) => {
+        const type = protectedItem.collection === "accounts" ? inferAccountType(item) : item.type;
         return (
           type === protectedItem.type &&
-          [protectedItem.name, ...(protectedItem.aliases || [])].includes(String(data.name || ""))
+          [protectedItem.name, ...(protectedItem.aliases || [])].includes(String(item.name || ""))
         );
       });
       const payload = {
@@ -428,9 +420,8 @@ async function ensureProtectedItems(accountsSnap, categoriesSnap) {
       };
 
       if (match) {
-        const data = match.data();
-        const currentType = protectedItem.collection === "accounts" ? inferAccountType(data) : data.type;
-        if (String(data.name || "") === payload.name && currentType === payload.type && getItemOrder(data) === payload.order) {
+        const currentType = protectedItem.collection === "accounts" ? inferAccountType(match) : match.type;
+        if (String(match.name || "") === payload.name && currentType === payload.type && getItemOrder(match) === payload.order) {
           return;
         }
         await updateUserCollectionDocument(db, state.uid, protectedItem.collection, match.id, payload);
@@ -625,11 +616,8 @@ async function deleteLegacyTransactions() {
     return;
   }
 
-  const snap = await getDocs(path("transactions"));
-  const legacyDocs = snap.docs.filter((item) => {
-    const data = item.data();
-    return !data.fromItem || !data.toItem;
-  });
+  const transactions = await loadCollectionItems(db, state.uid, "transactions");
+  const legacyDocs = transactions.filter((item) => !item.fromItem || !item.toItem);
 
   await Promise.all(legacyDocs.map((item) => deleteUserCollectionDocument(db, state.uid, "transactions", item.id)));
   const checkedAt = Date.now();
