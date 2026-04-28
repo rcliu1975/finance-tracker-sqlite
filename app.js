@@ -29,24 +29,41 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 const appRuntime = await loadAppRuntime();
-const { db, bootstrapError: runtimeBootstrapError, configFileName, hasConfig: hasBackendConfig, modeNotice, providerLabel } = appRuntime;
+const {
+  db,
+  bootstrapError: runtimeBootstrapError,
+  bootstrapErrorMessage,
+  hasConfig: hasBackendConfig,
+  initialData: runtimeInitialData,
+  localStorageKey: runtimeLocalStorageKey,
+  modeNotice,
+  providerLabel
+} = appRuntime;
 const waitingProviderStatus = `等待 ${providerLabel} 連線`;
 const dataBackend = createAppDataBackend({
   getDb: () => db,
   getUid: () => state.uid,
+  initialData: runtimeInitialData,
+  storageKey: runtimeLocalStorageKey,
   providerKey: appRuntime.providerKey
 });
+const seededCommonSummaries =
+  runtimeInitialData?.commonSummaries && typeof runtimeInitialData.commonSummaries === "object"
+    ? runtimeInitialData.commonSummaries
+    : {};
 
 if (hasBackendConfig) {
   document.getElementById("authStatus").textContent = waitingProviderStatus;
 }
 
-if (runtimeBootstrapError) {
-  document.getElementById("authStatus").textContent = `找不到 ${configFileName}，請先完成設定。`;
+if (runtimeBootstrapError && bootstrapErrorMessage) {
+  document.getElementById("authError").textContent = bootstrapErrorMessage;
 }
 
 if (modeNotice) {
-  document.getElementById("authError").textContent = modeNotice;
+  document.getElementById("authError").textContent = [document.getElementById("authError").textContent, modeNotice]
+    .filter(Boolean)
+    .join(" ");
 }
 
 const DEFAULT_CATEGORIES = [
@@ -2500,7 +2517,14 @@ function loadCommonSummaryStore() {
   if (Array.isArray(raw)) {
     return { global: raw };
   }
-  return raw && typeof raw === "object" ? raw : {};
+  if (raw && typeof raw === "object" && Object.keys(raw).length) {
+    return raw;
+  }
+  return cloneCommonSummaryStore(seededCommonSummaries);
+}
+
+function cloneCommonSummaryStore(store) {
+  return store && typeof store === "object" ? JSON.parse(JSON.stringify(store)) : {};
 }
 
 function getCommonSummaries(scopeKey) {

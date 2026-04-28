@@ -7,6 +7,22 @@ import {
   signOut
 } from "./firebase-backend.js";
 
+async function loadSQLiteSeedData(seedPath) {
+  const path = String(seedPath || "").trim();
+  if (!path) {
+    return null;
+  }
+  const response = await fetch(path, {
+    headers: {
+      Accept: "application/json"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`無法載入 SQLite seed：${path} (${response.status})`);
+  }
+  return response.json();
+}
+
 export async function loadAppRuntime() {
   const { appRuntime: runtimeConfig = {}, firebaseConfig, firebaseRuntime, loadError } = await loadFirebaseBootstrap();
   const providerKey = String(runtimeConfig.storageBackend || "firebase").trim().toLowerCase() || "firebase";
@@ -18,15 +34,35 @@ export async function loadAppRuntime() {
       displayName: "SQLite 本機模式",
       isLocalUser: true
     };
+    const sqliteSeedPath = String(runtimeConfig.sqliteSeedPath || "").trim();
+    let initialData = null;
+    let bootstrapError = loadError;
+    if (sqliteSeedPath) {
+      try {
+        initialData = await loadSQLiteSeedData(sqliteSeedPath);
+      } catch (seedLoadError) {
+        bootstrapError = seedLoadError;
+      }
+    }
+    const bootstrapErrorMessage = loadError
+      ? "找不到 firebase-config.js，請先完成設定。"
+      : bootstrapError
+        ? `SQLite seed 載入失敗：${bootstrapError.message || bootstrapError}`
+        : "";
     return {
       db: null,
       auth: null,
-      bootstrapError: loadError,
+      bootstrapError,
+      bootstrapErrorMessage,
       hasConfig: !loadError,
       configFileName: "firebase-config.js",
+      initialData,
+      localStorageKey: `financeTrackerSqliteBackend:${localUserId}`,
       providerKey,
       providerLabel: "SQLite",
-      modeNotice: "目前使用本機記憶體版 SQLite backend，重新整理頁面後資料不保留。",
+      modeNotice: sqliteSeedPath
+        ? "目前使用 SQLite seed + localStorage 模式。初次載入會讀取 seed，之後修改會保存在目前瀏覽器。"
+        : "目前使用本機記憶體版 SQLite backend，重新整理頁面後資料不保留。",
       supportsEmailAuth: false,
       supportsSignOut: false,
       observeAuthState(callback) {
@@ -55,8 +91,11 @@ export async function loadAppRuntime() {
     db,
     auth,
     bootstrapError: loadError,
+    bootstrapErrorMessage: loadError ? "找不到 firebase-config.js，請先完成設定。" : "",
     hasConfig: Boolean(firebaseConfig),
     configFileName: "firebase-config.js",
+    initialData: null,
+    localStorageKey: "",
     providerKey,
     providerLabel: "Firebase",
     modeNotice: "",

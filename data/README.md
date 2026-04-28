@@ -13,7 +13,7 @@
 - `firebase-data-backend.js`
   Firebase 版資料 backend factory，把 `db/uid` 綁成前端可直接呼叫的 API。
 - `sqlite-data-backend.js`
-  SQLite 遷移期的前端骨架。目前先提供本機記憶體版 CRUD，讓非 Firebase 路徑可以啟動與驗證 API 形狀。
+  SQLite 遷移期的前端骨架。現在可載入 seed JSON，並在瀏覽器端以 `localStorage` 持久化後續修改。
 - `firestore-user-paths.js`
   集中 `users/{uid}/...` 文件與集合路徑 helper。
 
@@ -26,6 +26,7 @@
 5. `db/uid` 綁定與 app-facing method 形狀
 6. runtime bootstrap 與 auth action 入口
 7. backend provider 切換骨架
+8. SQLite seed 載入與前端本地持久化
 
 下一步應該是繼續把剩餘的特殊流程也收進 repository，例如：
 

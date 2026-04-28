@@ -10,11 +10,12 @@
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
 - 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
 - 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
+- 已有 SQLite -> 前端 seed JSON 匯出腳本：`scripts/export-sqlite-to-json.py`
 - 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
 - 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為未來接上 SQLite backend 預留穩定介面
 - 前端 runtime / auth 也已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
-- 已加入 `APP_STORAGE_BACKEND=sqlite` 的 provider 切換骨架；目前會啟動本機記憶體版 SQLite backend，先驗證前端 API 形狀
+- 已加入 `APP_STORAGE_BACKEND=sqlite` 的 provider 切換骨架；目前可載入 SQLite seed JSON，並把後續修改存到瀏覽器 `localStorage`
 - 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
 
 ### SQLite 匯入測試
@@ -48,11 +49,20 @@ npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
 npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --apply
 ```
 
+如果要把 SQLite 測試資料庫匯出成前端可直接載入的 seed JSON：
+
+```bash
+npm run sqlite:export-json -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --output /tmp/finance-tracker-sqlite-seed.json
+```
+
 建議依序執行：
 
 1. `sqlite:import-csv`
 2. `sqlite:rebuild-snapshots --apply`
 3. `sqlite:verify-db`
+4. `sqlite:export-json`
 
 不要同時對同一顆 `.db` 平行執行 `--replace` 匯入、快照重建與驗證。
 
@@ -122,14 +132,34 @@ npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --appl
 ```dotenv
 APP_STORAGE_BACKEND=sqlite
 APP_LOCAL_USER_ID=local-user
+APP_SQLITE_SEED_PATH=/sqlite-seed.json
 ```
 
 這個模式目前特性如下：
 
+- 如果有設定 `APP_SQLITE_SEED_PATH`，啟動時會先抓取 seed JSON
+- 成功載入後，後續修改會保存在目前瀏覽器的 `localStorage`
+- 如果沒設定 `APP_SQLITE_SEED_PATH`，就退回空白的本機記憶體模式
 - 不需要 Firebase Web App 金鑰
 - 不走 Firebase Authentication
 - 會以單一本機使用者進入 app
-- 資料層目前是記憶體版 stub，重新整理頁面後資料不保留
+- 純記憶體模式下，重新整理頁面後資料不保留
+
+最簡單的本機測試方式，是先把 seed JSON 放在專案根目錄，例如：
+
+```bash
+npm run sqlite:export-json -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --output ./sqlite-seed.json
+```
+
+然後在 `.env` 設：
+
+```dotenv
+APP_STORAGE_BACKEND=sqlite
+APP_LOCAL_USER_ID=local-user
+APP_SQLITE_SEED_PATH=/sqlite-seed.json
+```
 
 啟動方式仍然相同：
 

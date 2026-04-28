@@ -11,3 +11,6 @@ firestore-debug.log
 *.db
 *.sqlite
 *.sqlite3
+sqlite-seed.json
+*-sqlite-seed.json
+__pycache__/

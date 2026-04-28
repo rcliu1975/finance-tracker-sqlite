@@ -20,14 +20,83 @@ function createCollectionState() {
   };
 }
 
-export function createSQLiteDataBackend() {
+function defaultSettings() {
+  return {
+    monthlyBudget: 0,
+    recurringAppliedMonth: "",
+    snapshotDirtyFromMonth: "",
+    legacyTransactionsCheckedAt: 0
+  };
+}
+
+function normalizeSeedData(seedData) {
   const collections = createCollectionState();
-  let settings = null;
-  let nextId = 1;
+  const sourceCollections = seedData?.collections || {};
+  for (const name of Object.keys(collections)) {
+    collections[name] = Array.isArray(sourceCollections[name]) ? cloneValue(sourceCollections[name]) : [];
+  }
+  return {
+    settings: {
+      ...defaultSettings(),
+      ...(seedData?.settings && typeof seedData.settings === "object" ? cloneValue(seedData.settings) : {})
+    },
+    collections,
+    commonSummaries:
+      seedData?.commonSummaries && typeof seedData.commonSummaries === "object" ? cloneValue(seedData.commonSummaries) : {},
+    nextId: Number(seedData?.nextId || 1) > 0 ? Number(seedData?.nextId || 1) : 1
+  };
+}
+
+function readLocalSnapshot(storageKey) {
+  if (!storageKey || !globalThis.localStorage) {
+    return null;
+  }
+  try {
+    const raw = globalThis.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalSnapshot(storageKey, snapshot) {
+  if (!storageKey || !globalThis.localStorage) {
+    return;
+  }
+  globalThis.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+}
+
+export function createSQLiteDataBackend(options = {}) {
+  const normalizedSeed = normalizeSeedData(options.initialData);
+  const storageKey = String(options.storageKey || "").trim();
+  const persistedSnapshot = readLocalSnapshot(storageKey);
+  const persisted = normalizeSeedData(persistedSnapshot);
+  const shouldUsePersisted = Boolean(persistedSnapshot);
+  const active = shouldUsePersisted ? persisted : normalizedSeed;
+  const collections = active.collections;
+  let settings = active.settings;
+  let nextId = active.nextId;
+
+  function persist() {
+    writeLocalSnapshot(storageKey, {
+      settings,
+      collections,
+      commonSummaries: normalizedSeed.commonSummaries,
+      nextId
+    });
+  }
+
+  if (!shouldUsePersisted && storageKey) {
+    persist();
+  }
 
   function requireCollection(name) {
     if (!Object.prototype.hasOwnProperty.call(collections, name)) {
-      throw new Error(`SQLite backend stub 不支援集合：${name}`);
+      throw new Error(`SQLite backend 不支援集合：${name}`);
     }
     return collections[name];
   }
@@ -109,18 +178,24 @@ export function createSQLiteDataBackend() {
         .map((item) => cloneValue(item));
     },
     async replaceSettingsState(payload) {
-      settings = cloneValue(payload);
+      settings = {
+        ...defaultSettings(),
+        ...cloneValue(payload)
+      };
+      persist();
     },
     async saveSettingsPatch(payload) {
       settings = {
         ...(settings || {}),
         ...cloneValue(payload)
       };
+      persist();
     },
     async createUserCollectionDocument(collectionName, payload) {
       const items = requireCollection(collectionName);
       const id = nextDocumentId(collectionName);
       items.push({ id, ...cloneValue(payload) });
+      persist();
       return { id };
     },
     async saveUserCollectionDocument(collectionName, id, payload) {
@@ -129,26 +204,30 @@ export function createSQLiteDataBackend() {
       const index = findDocumentIndex(items, id);
       if (index < 0) {
         items.push(nextDocument);
+        persist();
         return;
       }
       items[index] = nextDocument;
+      persist();
     },
     async updateUserCollectionDocument(collectionName, id, payload) {
       const items = requireCollection(collectionName);
       const index = findDocumentIndex(items, id);
       if (index < 0) {
-        throw new Error(`SQLite backend stub 找不到文件：${collectionName}/${id}`);
+        throw new Error(`SQLite backend 找不到文件：${collectionName}/${id}`);
       }
       items[index] = {
         ...items[index],
         ...cloneValue(payload)
       };
+      persist();
     },
     async deleteUserCollectionDocument(collectionName, id) {
       const items = requireCollection(collectionName);
       const index = findDocumentIndex(items, id);
       if (index >= 0) {
         items.splice(index, 1);
+        persist();
       }
     },
     async batchUpdateUserCollectionOrders(items) {
