@@ -9,8 +9,8 @@ if (-not (Get-Command firebase -ErrorAction SilentlyContinue)) {
   }
 }
 
-if (-not (Test-Path "firebase-config.js")) {
-  Write-Error "firebase-config.js not found. Add your Firebase Web config first."
+if ((-not (Test-Path "app-config.js")) -and (-not (Test-Path "firebase-config.js"))) {
+  Write-Error "app-config.js or firebase-config.js not found. Generate config first."
 }
 
 if (-not (Test-Path ".firebaserc")) {

@@ -45,10 +45,15 @@ export {
 
 export async function loadFirebaseBootstrap() {
   try {
-    const { appRuntime = {}, firebaseConfig = null, firebaseRuntime = {} } = await import("../firebase-config.js");
+    const { appRuntime = {}, firebaseConfig = null, firebaseRuntime = {} } = await import("../app-config.js");
     return { appRuntime, firebaseConfig, firebaseRuntime, loadError: null };
   } catch (loadError) {
-    return { appRuntime: {}, firebaseConfig: null, firebaseRuntime: {}, loadError };
+    try {
+      const { appRuntime = {}, firebaseConfig = null, firebaseRuntime = {} } = await import("../firebase-config.js");
+      return { appRuntime, firebaseConfig, firebaseRuntime, loadError: null };
+    } catch (legacyLoadError) {
+      return { appRuntime: {}, firebaseConfig: null, firebaseRuntime: {}, loadError: legacyLoadError || loadError };
+    }
   }
 }
 

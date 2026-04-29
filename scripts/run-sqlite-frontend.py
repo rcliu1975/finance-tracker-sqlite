@@ -80,11 +80,11 @@ def main() -> int:
         subprocess.run(
             [
                 "node",
-                "scripts/generate-firebase-config.js",
+                "scripts/generate-app-config.js",
                 "--env-file",
                 temp_env_path,
                 "--output",
-                "firebase-config.js",
+                "app-config.js",
             ],
             cwd=repo_root,
             check=True,

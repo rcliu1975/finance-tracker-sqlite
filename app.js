@@ -1564,6 +1564,14 @@ function renderSQLiteBridgeAdmin() {
   const refreshButton = $("sqliteBridgeRefreshBtn");
   const rebuildButton = $("sqliteRebuildSnapshotsBtn");
   const { status, loading, rebuilding, error } = state.sqliteBridgeAdmin;
+  const transactionCount = state.hasTransactions ? state.transactions.length : 0;
+  const snapshotCount = state.monthlySnapshots.length;
+  const commonSummaryCount = Object.values(state.commonSummaries || {}).reduce(
+    (sum, summaries) => sum + (Array.isArray(summaries) ? summaries.length : 0),
+    0
+  );
+  const accountCount = state.accounts.length;
+  const categoryCount = state.categories.length;
 
   if (refreshButton) {
     refreshButton.disabled = loading || rebuilding;
@@ -1587,7 +1595,7 @@ function renderSQLiteBridgeAdmin() {
   }
 
   const dirtyFromMonth = String(status.settings?.snapshotDirtyFromMonth || "").trim() || "無";
-  const earliestTransactionMonth = String(status.history?.earliestTransactionMonth || "").trim() || "無";
+  const earliestTransactionMonth = String(state.earliestTransactionMonth || status.history?.earliestTransactionMonth || "").trim() || "無";
   statusNode.textContent = [
     `DB：${status.dbPath || ""}`,
     `使用者：${status.userId || state.uid}`,
@@ -1595,11 +1603,11 @@ function renderSQLiteBridgeAdmin() {
     `最早交易月：${earliestTransactionMonth}`
   ].join(" | ");
   countsNode.textContent = [
-    `accounts ${Number(status.counts?.accounts || 0)}`,
-    `categories ${Number(status.counts?.categories || 0)}`,
-    `transactions ${Number(status.counts?.transactions || 0)}`,
-    `snapshots ${Number(status.counts?.monthlySnapshots || 0)}`,
-    `common summaries ${Number(status.counts?.commonSummaries || 0)}`
+    `accounts ${accountCount || Number(status.counts?.accounts || 0)}`,
+    `categories ${categoryCount || Number(status.counts?.categories || 0)}`,
+    `transactions ${transactionCount || Number(status.counts?.transactions || 0)}`,
+    `snapshots ${snapshotCount || Number(status.counts?.monthlySnapshots || 0)}`,
+    `common summaries ${commonSummaryCount || Number(status.counts?.commonSummaries || 0)}`
   ].join(" | ");
 }
 

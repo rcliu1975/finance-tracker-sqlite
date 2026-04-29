@@ -30,6 +30,7 @@
       "scripts/**",
       "chrome-dom.txt",
       "edge-dom.txt",
+      "app-config.example.js",
       "firebase-config.example.js",
       "**/.*",
       "**/node_modules/**"

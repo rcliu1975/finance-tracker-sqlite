@@ -9,7 +9,7 @@
 - `app-runtime.js`
   前端固定依賴的 runtime / auth 入口。現在會依 runtime 設定切換 Firebase、SQLite HTTP bridge 或 seed fallback 模式。
 - `firebase-backend.js`
-  集中 Firebase SDK import、`firebase-config.js` 載入，以及 Firestore / Auth 初始化。
+  集中 Firebase SDK import、`app-config.js` / `firebase-config.js` 載入，以及 Firestore / Auth 初始化。
 - `firebase-data-backend.js`
   Firebase 版資料 backend factory，把 `db/uid` 綁成前端可直接呼叫的 API。
 - `sqlite-data-backend.js`

@@ -48,7 +48,7 @@ export async function loadAppRuntime() {
       }
     }
     const bootstrapErrorMessage = loadError
-      ? "找不到 firebase-config.js，請先完成設定。"
+      ? "找不到 app-config.js 或 firebase-config.js，請先完成設定。"
       : bootstrapError
         ? `SQLite seed 載入失敗：${bootstrapError.message || bootstrapError}`
         : "";
@@ -58,7 +58,7 @@ export async function loadAppRuntime() {
       bootstrapError,
       bootstrapErrorMessage,
       hasConfig: !loadError,
-      configFileName: "firebase-config.js",
+      configFileName: "app-config.js",
       initialData,
       localStorageKey: sqliteApiBaseUrl ? "" : `financeTrackerSqliteBackend:${localUserId}`,
       sqliteApiBaseUrl,
@@ -97,9 +97,9 @@ export async function loadAppRuntime() {
     db,
     auth,
     bootstrapError: loadError,
-    bootstrapErrorMessage: loadError ? "找不到 firebase-config.js，請先完成設定。" : "",
+    bootstrapErrorMessage: loadError ? "找不到 app-config.js 或 firebase-config.js，請先完成設定。" : "",
     hasConfig: Boolean(firebaseConfig),
-    configFileName: "firebase-config.js",
+    configFileName: "app-config.js",
     initialData: null,
     localStorageKey: "",
     providerKey,

@@ -116,7 +116,7 @@ npm run sqlite:frontend -- \
 
 這支腳本會做三件事：
 
-1. 產生 `firebase-config.js`
+1. 產生 `app-config.js`
 2. 啟動 `sqlite-http-bridge.py`
 3. 啟動前端靜態 server
 
@@ -226,14 +226,16 @@ npm run sqlite:export-records -- \
 - `styles.css`: 視覺樣式與 RWD
 - `app.js`: Firebase 連線、資料處理與畫面渲染
 - `.env.example`: 本機與部署用 Firebase / Emulator 設定範本
-- `firebase-config.example.js`: Firebase 設定範本
+- `app-config.example.js`: 通用前端設定範本
+- `firebase-config.example.js`: 舊檔名相容範本
 - `firebase.json`: Firebase Hosting 設定
 - `firestore.rules`: Firestore 權限規則，只允許登入者存取自己的 `users/{uid}` 資料
 - `.firebaserc`: Firebase 專案綁定設定
 - `scripts/deploy.sh`: Unix-like 環境部署腳本
 - `scripts/deploy.ps1`: Windows PowerShell 部署腳本
 - `scripts/cleanup-orphan-users.js`: 比對 Firebase Authentication 與 Firestore `users/{uid}`，清理不存在帳號的使用者資料
-- `scripts/generate-firebase-config.js`: 依 `.env` 產生 `firebase-config.js`
+- `scripts/generate-app-config.js`: 依 `.env` 產生 `app-config.js`
+- `scripts/generate-firebase-config.js`: 舊腳本名稱相容保留
 - `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
 - `scripts/import-to-sqlite.py`: 統一 SQLite 匯入主入口，支援 `firestore`、`csv`、`items` 三種來源
 - `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV
@@ -319,6 +321,23 @@ curl -X POST http://127.0.0.1:8765/admin/rebuild-snapshots \
 ```
 
 前端 `設定` 分頁也會在這個模式下顯示 bridge 管理卡片，可直接查看狀態與手動重建 snapshot。
+
+如果要讓同網段或其他裝置連進來，請把 bridge 與前端都綁到外部位址，並把公開位址寫進前端設定：
+
+```bash
+npm run sqlite:frontend -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --user-id local-user \
+  --bridge-host 0.0.0.0 \
+  --serve-host 0.0.0.0 \
+  --open-host 192.168.1.10
+```
+
+說明：
+
+- `--bridge-host`：bridge 實際監聽位址
+- `--serve-host`：前端靜態 server 監聽位址
+- `--open-host`：寫入 `app-config.js` 的公開位址；遠端裝置會用它連 bridge
 
 #### SQLite seed fallback 模式
 
@@ -557,7 +576,7 @@ npm run rebuild:monthly-snapshots -- --uid <uid> --production --from 2024-01 --a
 
 專案目前已整理成適合直接發佈到 Firebase Hosting：
 
-- 會部署前端頁面、樣式、JavaScript 與 `firebase-config.js`
+- 會部署前端頁面、樣式、JavaScript 與 `app-config.js`
 - 不會部署 `.git`、README、部署腳本、Firestore 規則、範例設定檔與本機測試輸出
 - 已補上 `favicon.svg`，避免頁面出現 favicon 404
 
