@@ -13,21 +13,21 @@
       <div>
         <p class="eyebrow">MoneyBook</p>
       </div>
-      <div class="auth-panel">
-        <form id="emailAuthForm" class="email-auth-form">
+      <div class="session-panel">
+        <form id="emailSessionForm" class="email-session-form">
           <input name="email" type="email" autocomplete="email" placeholder="Email" required />
           <input name="password" type="password" autocomplete="current-password" placeholder="Password" required />
-          <div class="auth-actions">
-            <button name="action" value="login" type="submit" class="auth-btn">登入</button>
-            <button name="action" value="register" type="submit" class="auth-btn auth-btn-secondary">註冊</button>
+          <div class="session-actions">
+            <button name="action" value="login" type="submit" class="session-btn">登入</button>
+            <button id="sessionRegisterBtn" name="action" value="register" type="submit" class="session-btn session-btn-secondary">註冊</button>
           </div>
         </form>
-        <div id="authStatus" class="status-pill auth-feedback">等待 Firebase 連線</div>
-        <div id="signedInControls" class="signed-in-controls hidden">
-          <button id="desktopViewBtn" class="auth-btn auth-btn-secondary" type="button">桌面版</button>
-          <button id="signOutBtn" class="auth-btn" type="button">登出</button>
+        <div id="sessionStatus" class="status-pill session-feedback">等待資料後端連線</div>
+        <div id="sessionControls" class="session-controls hidden">
+          <button id="desktopViewBtn" class="session-btn session-btn-secondary" type="button">桌面版</button>
+          <button id="signOutBtn" class="session-btn" type="button">登出</button>
         </div>
-        <p id="authError" class="auth-error"></p>
+        <p id="sessionError" class="session-error"></p>
       </div>
     </header>
 
@@ -151,8 +151,6 @@
               <button id="desktopItemDeleteBtn" type="button" disabled>－ 刪除項目</button>
               <button id="desktopItemMoveUpBtn" type="button" disabled>位置上移</button>
               <button id="desktopItemMoveDownBtn" type="button" disabled>位置下移</button>
-              <button id="desktopExportItemsBtn" type="button">匯出項目</button>
-              <input id="itemsImportInput" class="hidden" type="file" accept=".csv,text/csv" />
               <button id="desktopEditSummariesBtn" type="button">編輯常用摘要</button>
               <button id="desktopSettingsDoneBtn" type="button">關閉</button>
             </div>
@@ -386,6 +384,17 @@
             </label>
             <button type="submit">儲存預算</button>
           </form>
+        </div>
+
+        <div id="sqliteBridgeAdminCard" class="card hidden">
+          <h3>SQLite Bridge 管理</h3>
+          <p class="section-hint">這個區塊只會在 SQLite bridge 模式顯示，用來檢查 bridge 狀態與重建 snapshot。</p>
+          <p id="sqliteBridgeAdminStatus">尚未讀取 bridge 狀態</p>
+          <p id="sqliteBridgeAdminCounts" class="section-hint"></p>
+          <div class="table-actions">
+            <button id="sqliteBridgeRefreshBtn" type="button">重新整理狀態</button>
+            <button id="sqliteRebuildSnapshotsBtn" type="button">重建 snapshot</button>
+          </div>
         </div>
 
           </section>

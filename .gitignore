@@ -1,3 +1,4 @@
+app-config.js
 firebase-config.js
 .env
 .env.*
@@ -8,3 +9,9 @@ chrome-dom.txt
 edge-dom.txt
 firebase-debug.log
 firestore-debug.log
+*.db
+*.sqlite
+*.sqlite3
+sqlite-seed.json
+*-sqlite-seed.json
+__pycache__/

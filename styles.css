@@ -56,7 +56,7 @@ body.mobile-mode.mobile-transactions-tab {
   z-index: 10;
 }
 
-body.auth-signed-out .topbar {
+body.session-signed-out .topbar {
   align-items: flex-start;
   padding-bottom: 1.25rem;
 }
@@ -84,13 +84,13 @@ body.auth-signed-out .topbar {
   white-space: normal;
 }
 
-.auth-feedback {
+.session-feedback {
   align-self: auto;
   flex: 0 1 auto;
   order: 2;
 }
 
-.auth-panel {
+.session-panel {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -99,7 +99,7 @@ body.auth-signed-out .topbar {
   min-width: 0;
 }
 
-body.auth-signed-out .auth-panel {
+body.session-signed-out .session-panel {
   flex: 1 1 34rem;
   width: 100%;
   display: flex;
@@ -108,7 +108,7 @@ body.auth-signed-out .auth-panel {
   justify-content: flex-end;
 }
 
-body.auth-signed-out .email-auth-form {
+body.session-signed-out .email-session-form {
   order: 1;
   width: min(100%, 34rem);
   display: grid;
@@ -117,7 +117,7 @@ body.auth-signed-out .email-auth-form {
   justify-items: end;
 }
 
-.email-auth-form {
+.email-session-form {
   display: flex;
   gap: 0.5rem;
   flex-wrap: nowrap;
@@ -126,7 +126,7 @@ body.auth-signed-out .email-auth-form {
   min-width: 0;
 }
 
-.signed-in-controls {
+.session-controls {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -136,7 +136,7 @@ body.auth-signed-out .email-auth-form {
   order: 1;
 }
 
-.email-auth-form input {
+.email-session-form input {
   width: 12rem;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -145,14 +145,14 @@ body.auth-signed-out .email-auth-form {
   font: inherit;
 }
 
-.email-auth-form .auth-btn {
+.email-session-form .session-btn {
   height: 2.5rem;
   padding: 0 0.95rem;
   border-radius: 999px;
   flex: 0 0 auto;
 }
 
-.email-auth-form .auth-actions {
+.email-session-form .session-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: nowrap;
@@ -160,7 +160,7 @@ body.auth-signed-out .email-auth-form {
   align-items: center;
 }
 
-.auth-btn {
+.session-btn {
   border: 1px solid var(--line);
   background: var(--primary);
   color: #fff;
@@ -169,7 +169,7 @@ body.auth-signed-out .email-auth-form {
   cursor: pointer;
 }
 
-.auth-btn-secondary {
+.session-btn-secondary {
   background: rgba(255, 255, 255, 0.85);
   color: var(--text);
 }
@@ -178,7 +178,7 @@ body.auth-signed-out .email-auth-form {
   display: inline-flex;
 }
 
-.auth-error {
+.session-error {
   margin: 0;
   flex: 0 0 100%;
   color: var(--danger);
@@ -187,23 +187,23 @@ body.auth-signed-out .email-auth-form {
   max-width: 28rem;
 }
 
-body.auth-signed-out .auth-feedback,
-body.auth-signed-out .auth-error {
+body.session-signed-out .session-feedback,
+body.session-signed-out .session-error {
   flex-basis: 100%;
   max-width: none;
   width: min(24rem, 100%);
   margin-left: auto;
 }
 
-body.auth-signed-out .auth-feedback {
+body.session-signed-out .session-feedback {
   order: 2;
 }
 
-body.auth-signed-out .auth-error {
+body.session-signed-out .session-error {
   order: 3;
 }
 
-.auth-error:empty {
+.session-error:empty {
   display: none;
 }
 
@@ -1558,33 +1558,33 @@ canvas {
 }
 
 @media (max-width: 500px) {
-  body.auth-signed-out .topbar {
+  body.session-signed-out .topbar {
     gap: 0.75rem;
   }
 
-  body.auth-signed-out .auth-panel {
+  body.session-signed-out .session-panel {
     width: 100%;
   }
 
-  body.auth-signed-out .email-auth-form {
+  body.session-signed-out .email-session-form {
     width: 100%;
     grid-template-columns: 1fr auto auto;
     align-items: end;
   }
 
-  body.auth-signed-out .email-auth-form input {
+  body.session-signed-out .email-session-form input {
     width: 100%;
     grid-column: 1 / -1;
   }
 
-  body.auth-signed-out .email-auth-form .auth-actions {
+  body.session-signed-out .email-session-form .session-actions {
     grid-row: 3;
     grid-column: 2 / 4;
     justify-self: end;
   }
 
-  body.auth-signed-out .auth-feedback,
-  body.auth-signed-out .auth-error {
+  body.session-signed-out .session-feedback,
+  body.session-signed-out .session-error {
     text-align: right;
   }
 
@@ -1596,7 +1596,7 @@ canvas {
 }
 
 @media (min-width: 501px) and (max-width: 1023px) {
-  body.auth-signed-out .email-auth-form {
+  body.session-signed-out .email-session-form {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
@@ -1607,26 +1607,26 @@ canvas {
   }
 
 /*
-  body.auth-signed-out .email-auth-form::after {
+  body.session-signed-out .email-session-form::after {
     content: "";
     order: 1;
     flex: 0 0 100%;
     height: 0;
   }
 */
-  body.auth-signed-out .email-auth-form input {
+  body.session-signed-out .email-session-form input {
     order: 1;
     width: 100%;
     flex: 0 0 12rem;
   }
 
-  body.auth-signed-out .email-auth-form .auth-actions {
+  body.session-signed-out .email-session-form .session-actions {
     order: 2;
   }
 }
 
 @media (min-width: 1024px) {
-  body.auth-signed-out .email-auth-form {
+  body.session-signed-out .email-session-form {
     display: flex;
     flex-wrap: nowrap;
     justify-content: end;
@@ -1635,12 +1635,12 @@ canvas {
     max-width: 48rem;
   }
 
-  body.auth-signed-out .email-auth-form input {
+  body.session-signed-out .email-session-form input {
     width: 12rem;
     flex: 0 0 12rem;
   }
 
-  body.auth-signed-out .email-auth-form .auth-actions {
+  body.session-signed-out .email-session-form .session-actions {
     flex: 0 0 auto;
   }
 }

@@ -1,4 +1,4 @@
-// 舊檔名保留相容用途；新專案建議改用 .env 搭配 scripts/generate-app-config.js 產生 app-config.js。
+// 建議改用 .env 搭配 scripts/generate-app-config.js 產生 app-config.js。
 export const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
   authDomain: "YOUR_PROJECT.firebaseapp.com",

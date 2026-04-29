@@ -6,8 +6,8 @@ if ! command -v firebase >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f firebase-config.js ]]; then
-  echo "❌ 找不到 firebase-config.js，請先複製 firebase-config.example.js 並填入設定"
+if [[ ! -f app-config.js && ! -f firebase-config.js ]]; then
+  echo "❌ 找不到 app-config.js 或 firebase-config.js，請先產生設定檔"
   exit 1
 fi
 

@@ -1,63 +1,64 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  connectAuthEmulator,
-  createUserWithEmailAndPassword,
-  getAuth,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {
-  addDoc,
-  collection,
-  connectFirestoreEmulator,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  initializeFirestore,
-  limit,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-  where
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { applySessionBootstrapState, initializeAppSession } from "./data/app-session.js";
 
-let firebaseConfig;
-let firebaseRuntime = {};
-let authInitialized = false;
+let runtimeSessionObserved = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
 
 window.addEventListener("error", (event) => {
   const message = event.error?.message || event.message || "未知錯誤";
-  const status = document.getElementById("authStatus");
-  const authError = document.getElementById("authError");
+  const status = document.getElementById("sessionStatus");
+  const sessionError = document.getElementById("sessionError");
   if (status) {
     status.textContent = "前端初始化失敗";
   }
-  if (authError) {
-    authError.textContent = `初始化錯誤：${message}`;
+  if (sessionError) {
+    sessionError.textContent = `初始化錯誤：${message}`;
   }
 });
 
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason?.message || event.reason?.code || String(event.reason || "未知錯誤");
-  const status = document.getElementById("authStatus");
-  const authError = document.getElementById("authError");
+  const status = document.getElementById("sessionStatus");
+  const sessionError = document.getElementById("sessionError");
   if (status) {
     status.textContent = "前端初始化失敗";
   }
-  if (authError) {
-    authError.textContent = `初始化錯誤：${reason}`;
+  if (sessionError) {
+    sessionError.textContent = `初始化錯誤：${reason}`;
   }
 });
 
-try {
-  ({ firebaseConfig, firebaseRuntime = {} } = await import("./firebase-config.js"));
-} catch {
-  document.getElementById("authStatus").textContent = "找不到 firebase-config.js，請先完成設定。";
-}
+const appSession = await initializeAppSession();
+const {
+  runtime: appRuntime,
+  dataBackend,
+  bootstrapError: runtimeBootstrapError,
+  bootstrapErrorMessage,
+  hasConfig: hasBackendConfig,
+  initialData: runtimeInitialData,
+  modeNotice,
+  providerLabel
+} = appSession;
+const waitingProviderStatus = appSession.waitingStatus;
+const seededCommonSummaries =
+  runtimeInitialData?.commonSummaries && typeof runtimeInitialData.commonSummaries === "object"
+    ? runtimeInitialData.commonSummaries
+    : {};
+
+applySessionBootstrapState({
+  hasConfig: hasBackendConfig,
+  waitingStatus: waitingProviderStatus,
+  bootstrapError: runtimeBootstrapError,
+  bootstrapErrorMessage,
+  modeNotice,
+  setStatus(nextValue) {
+    document.getElementById("sessionStatus").textContent = String(nextValue || "");
+  },
+  setError(nextValue) {
+    const current = document.getElementById("sessionError").textContent;
+    document.getElementById("sessionError").textContent =
+      typeof nextValue === "function" ? String(nextValue(current) || "") : String(nextValue || "");
+  }
+});
 
 const DEFAULT_CATEGORIES = [
   { name: "餐飲費", type: "expense", order: 0 },
@@ -148,6 +149,12 @@ const state = {
   desktopItemEditing: null,
   commonSummaryEditingScopeKey: "",
   commonSummaries: loadCommonSummaryStore(),
+  sqliteBridgeAdmin: {
+    status: null,
+    loading: false,
+    rebuilding: false,
+    error: ""
+  },
   settings: {
     monthlyBudget: 0,
     recurringAppliedMonth: "",
@@ -207,6 +214,10 @@ function currentMonthKey(date = new Date()) {
   return todayKey(date).slice(0, 7);
 }
 
+function supportsSQLiteBridgeAdmin() {
+  return typeof dataBackend?.loadAdminStatus === "function" && typeof dataBackend?.rebuildSnapshots === "function";
+}
+
 function monthKey(date) {
   return String(date || "").slice(0, 7);
 }
@@ -254,57 +265,29 @@ function getLatestUsableSnapshotBefore(month) {
   return candidates[0] || null;
 }
 
-let db;
-let auth;
-
-function getFirebaseRuntimeConfig() {
-  const runtime = firebaseRuntime || {};
-  const emulatorHost = String(runtime.emulatorHost || "").trim() || window.location.hostname || "127.0.0.1";
-  return {
-    useEmulators: Boolean(runtime.useEmulators),
-    emulatorHost,
-    authEmulatorPort: Number(runtime.authEmulatorPort || 9099),
-    firestoreEmulatorPort: Number(runtime.firestoreEmulatorPort || 8080),
-    emulatorUiPort: Number(runtime.emulatorUiPort || 4000)
-  };
-}
-
-if (firebaseConfig) {
-  const app = initializeApp(firebaseConfig);
-  db = initializeFirestore(app, {
-    experimentalAutoDetectLongPolling: true,
-    useFetchStreams: false
-  });
-  auth = getAuth(app);
-  const runtime = getFirebaseRuntimeConfig();
-  if (runtime.useEmulators) {
-    connectFirestoreEmulator(db, runtime.emulatorHost, runtime.firestoreEmulatorPort);
-    connectAuthEmulator(auth, `http://${runtime.emulatorHost}:${runtime.authEmulatorPort}`, {
-      disableWarnings: true
-    });
-  }
+if (hasBackendConfig) {
   bindEvents();
 
-  onAuthStateChanged(auth, async (user) => {
-    authInitialized = true;
+  appRuntime.observeSessionState(async (user) => {
+    runtimeSessionObserved = true;
     if (!user) {
       state.uid = null;
       resetStateData();
-      renderAuthState(null);
+      renderSessionState(null);
       renderAll();
       return;
     }
 
     state.uid = user.uid;
-    renderAuthState(user);
+    renderSessionState(user);
     await bootstrap();
   });
 }
 
 window.setTimeout(() => {
-  if (!authInitialized && document.getElementById("authStatus")?.textContent === "等待 Firebase 連線") {
-    document.getElementById("authStatus").textContent = "Firebase 初始化逾時";
-    document.getElementById("authError").textContent = "前端沒有成功完成 Firebase 初始化，請重新整理頁面；若仍發生，請回報這一行訊息。";
+  if (!runtimeSessionObserved && document.getElementById("sessionStatus")?.textContent === waitingProviderStatus) {
+    document.getElementById("sessionStatus").textContent = `${providerLabel} 初始化逾時`;
+    document.getElementById("sessionError").textContent = `前端沒有成功完成 ${providerLabel} 初始化，請重新整理頁面；若仍發生，請回報這一行訊息。`;
   }
 }, 5000);
 
@@ -312,9 +295,7 @@ function resetStateData() {
   state.accounts = [];
   state.categories = [];
   state.transactions = [];
-  state.monthlySnapshots = [];
-  state.loadedSnapshotMonths.clear();
-  state.loadedLatestSnapshotBeforeTargets.clear();
+  resetSnapshotState();
   state.hasTransactions = false;
   state.earliestTransactionMonth = "";
   state.earliestSnapshotMonth = "";
@@ -326,7 +307,19 @@ function resetStateData() {
     snapshotDirtyFromMonth: "",
     legacyTransactionsCheckedAt: 0
   };
+  state.sqliteBridgeAdmin = {
+    status: null,
+    loading: false,
+    rebuilding: false,
+    error: ""
+  };
   invalidateDerivedDataCache();
+}
+
+function resetSnapshotState() {
+  state.monthlySnapshots = [];
+  state.loadedSnapshotMonths.clear();
+  state.loadedLatestSnapshotBeforeTargets.clear();
 }
 
 async function markSnapshotDirtyFromMonth(month) {
@@ -339,7 +332,7 @@ async function markSnapshotDirtyFromMonth(month) {
     return;
   }
   state.settings.snapshotDirtyFromMonth = nextMonth;
-  await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+  await dataBackend.saveSettingsPatch({
     snapshotDirtyFromMonth: nextMonth
   });
 }
@@ -363,10 +356,6 @@ function getEarliestAccountTransactionMonth(accountId) {
     .sort()[0] || "";
 }
 
-function path(name) {
-  return collection(db, "users", state.uid, name);
-}
-
 async function bootstrap() {
   await ensureDefaults();
   await deleteLegacyTransactions();
@@ -376,74 +365,72 @@ async function bootstrap() {
   }
   bindEvents();
   await applyRecurringIfNeeded();
+  await refreshSQLiteBridgeAdminStatus({ silent: true });
   renderAll();
 }
 
 async function ensureDefaults() {
-  const settingsRef = doc(db, "users", state.uid, "meta", "settings");
-  const [settingsSnap, initialCategoriesSnap, accountsSnap] = await Promise.all([
-    getDoc(settingsRef),
-    getDocs(path("categories")),
-    getDocs(path("accounts"))
+  const [storedSettings, initialCategories, accounts] = await Promise.all([
+    dataBackend.loadStoredSettingsState(),
+    dataBackend.loadCollectionItems("categories"),
+    dataBackend.loadCollectionItems("accounts")
   ]);
-  if (!settingsSnap.exists()) {
+  if (!storedSettings) {
     state.settings = {
       monthlyBudget: 0,
       recurringAppliedMonth: "",
       snapshotDirtyFromMonth: "",
       legacyTransactionsCheckedAt: 0
     };
-    await setDoc(settingsRef, state.settings);
+    await dataBackend.replaceSettingsState(state.settings);
   } else {
     state.settings = {
-      monthlyBudget: Number(settingsSnap.data()?.monthlyBudget || 0),
-      recurringAppliedMonth: String(settingsSnap.data()?.recurringAppliedMonth || ""),
-      snapshotDirtyFromMonth: String(settingsSnap.data()?.snapshotDirtyFromMonth || ""),
-      legacyTransactionsCheckedAt: Number(settingsSnap.data()?.legacyTransactionsCheckedAt || 0)
+      monthlyBudget: Number(storedSettings.monthlyBudget || 0),
+      recurringAppliedMonth: String(storedSettings.recurringAppliedMonth || ""),
+      snapshotDirtyFromMonth: String(storedSettings.snapshotDirtyFromMonth || ""),
+      legacyTransactionsCheckedAt: Number(storedSettings.legacyTransactionsCheckedAt || 0)
     };
   }
 
-  let categoriesSnap = initialCategoriesSnap;
-  if (categoriesSnap.empty) {
+  let categories = initialCategories;
+  if (!categories.length) {
     for (const category of DEFAULT_CATEGORIES) {
-      await addDoc(path("categories"), { ...category, createdAt: Date.now() });
+      await dataBackend.createUserCollectionDocument("categories", { ...category, createdAt: Date.now() });
     }
-    categoriesSnap = await getDocs(path("categories"));
+    categories = await dataBackend.loadCollectionItems("categories");
   } else {
-    await ensureDefaultCategories(categoriesSnap);
-    categoriesSnap = await getDocs(path("categories"));
+    await ensureDefaultCategories(categories);
+    categories = await dataBackend.loadCollectionItems("categories");
   }
 
-  await ensureProtectedItems(accountsSnap, categoriesSnap);
+  await ensureProtectedItems(accounts, categories);
 }
 
-async function ensureDefaultCategories(categoriesSnap) {
-  const existing = categoriesSnap.docs.map((item) => item.data());
+async function ensureDefaultCategories(categories) {
   await Promise.all(
     DEFAULT_CATEGORIES.map(async (category) => {
       const protectedItem = PROTECTED_ITEMS.find(
         (item) => item.collection === "categories" && item.type === category.type && item.name === category.name
       );
       const validNames = [category.name, ...(protectedItem?.aliases || [])];
-      const exists = existing.some((item) => item.type === category.type && validNames.includes(String(item.name || "")));
+      const exists = categories.some((item) => item.type === category.type && validNames.includes(String(item.name || "")));
       if (exists) {
         return;
       }
-      await addDoc(path("categories"), { ...category, createdAt: Date.now() });
+      await dataBackend.createUserCollectionDocument("categories", { ...category, createdAt: Date.now() });
     })
   );
 }
 
-async function ensureProtectedItems(accountsSnap, categoriesSnap) {
+async function ensureProtectedItems(accounts, categories) {
   await Promise.all(
     PROTECTED_ITEMS.map(async (protectedItem) => {
-      const snap = protectedItem.collection === "accounts" ? accountsSnap : categoriesSnap;
-      const match = snap.docs.find((item) => {
-        const data = item.data();
-        const type = protectedItem.collection === "accounts" ? inferAccountType(data) : data.type;
+      const items = protectedItem.collection === "accounts" ? accounts : categories;
+      const match = items.find((item) => {
+        const type = protectedItem.collection === "accounts" ? inferAccountType(item) : item.type;
         return (
           type === protectedItem.type &&
-          [protectedItem.name, ...(protectedItem.aliases || [])].includes(String(data.name || ""))
+          [protectedItem.name, ...(protectedItem.aliases || [])].includes(String(item.name || ""))
         );
       });
       const payload = {
@@ -453,17 +440,16 @@ async function ensureProtectedItems(accountsSnap, categoriesSnap) {
       };
 
       if (match) {
-        const data = match.data();
-        const currentType = protectedItem.collection === "accounts" ? inferAccountType(data) : data.type;
-        if (String(data.name || "") === payload.name && currentType === payload.type && getItemOrder(data) === payload.order) {
+        const currentType = protectedItem.collection === "accounts" ? inferAccountType(match) : match.type;
+        if (String(match.name || "") === payload.name && currentType === payload.type && getItemOrder(match) === payload.order) {
           return;
         }
-        await updateDoc(doc(db, "users", state.uid, protectedItem.collection, match.id), payload);
+        await dataBackend.updateUserCollectionDocument(protectedItem.collection, match.id, payload);
         return;
       }
 
       const defaults = protectedItem.collection === "accounts" ? { balance: 0 } : {};
-      await addDoc(path(protectedItem.collection), {
+      await dataBackend.createUserCollectionDocument(protectedItem.collection, {
         ...payload,
         ...defaults,
         createdAt: Date.now()
@@ -473,40 +459,66 @@ async function ensureProtectedItems(accountsSnap, categoriesSnap) {
 }
 
 async function loadAll() {
-  state.monthlySnapshots = [];
-  state.loadedSnapshotMonths.clear();
-  state.loadedLatestSnapshotBeforeTargets.clear();
-  const settingsRef = doc(db, "users", state.uid, "meta", "settings");
-  const [accounts, categories, recurring, settingsSnap, hasTransactions, earliestTransactionMonth, earliestSnapshotMonth] = await Promise.all([
-    loadCollection("accounts"),
-    loadCollection("categories"),
-    loadCollection("recurring"),
-    getDoc(settingsRef),
-    hasAnyTransactions(),
-    getEarliestTransactionMonthFromStore(),
-    getEarliestSnapshotMonthFromStore()
-  ]);
+  resetSnapshotState();
+  await Promise.all([loadReferenceDataState(), loadSettingsState(), loadHistoryMetadata(), loadCommonSummaryState()]);
+  await loadCurrentViewData();
+}
+
+async function loadReferenceDataState() {
+  const { accounts, categories, recurring } = await dataBackend.loadReferenceData();
   state.accounts = accounts;
   state.categories = categories;
   state.recurring = recurring;
-  state.earliestTransactionMonth = earliestTransactionMonth;
-  state.earliestSnapshotMonth = earliestSnapshotMonth;
+  invalidateDerivedDataCache();
+}
+
+async function loadSettingsState() {
+  const settingsData = await dataBackend.loadSettingsState();
   state.settings = {
     monthlyBudget: 0,
     recurringAppliedMonth: "",
     snapshotDirtyFromMonth: "",
     legacyTransactionsCheckedAt: 0,
-    ...(settingsSnap.data() || {})
+    ...settingsData
   };
-  state.hasTransactions = hasTransactions;
-  await refreshTransactionsForCurrentView();
-  invalidateDerivedDataCache();
 }
 
-async function loadCollection(name, orderField) {
-  const reference = orderField ? query(path(name), orderBy(orderField, "desc")) : path(name);
-  const snap = await getDocs(reference);
-  return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+async function loadHistoryMetadata() {
+  const historyMetadata = await dataBackend.loadHistoryMetadata();
+  state.earliestTransactionMonth = historyMetadata.earliestTransactionMonth;
+  state.earliestSnapshotMonth = historyMetadata.earliestSnapshotMonth;
+  state.hasTransactions = historyMetadata.hasTransactions;
+}
+
+async function loadCurrentViewData({ resetSnapshots = false } = {}) {
+  if (resetSnapshots) {
+    resetSnapshotState();
+  }
+  await refreshTransactionsForCurrentView();
+}
+
+async function refreshSQLiteBridgeAdminStatus({ silent = false } = {}) {
+  if (!supportsSQLiteBridgeAdmin() || !state.uid) {
+    state.sqliteBridgeAdmin.status = null;
+    state.sqliteBridgeAdmin.error = "";
+    state.sqliteBridgeAdmin.loading = false;
+    return;
+  }
+
+  if (!silent) {
+    state.sqliteBridgeAdmin.loading = true;
+    renderSQLiteBridgeAdmin();
+  }
+
+  try {
+    state.sqliteBridgeAdmin.status = await dataBackend.loadAdminStatus();
+    state.sqliteBridgeAdmin.error = "";
+  } catch (error) {
+    state.sqliteBridgeAdmin.error = error?.message || String(error || "未知錯誤");
+  } finally {
+    state.sqliteBridgeAdmin.loading = false;
+    renderSQLiteBridgeAdmin();
+  }
 }
 
 function upsertMonthlySnapshot(snapshot) {
@@ -527,9 +539,9 @@ async function loadSnapshotMonth(month) {
     return;
   }
   state.loadedSnapshotMonths.add(normalizedMonth);
-  const snapshot = await getDoc(doc(db, "users", state.uid, "monthlySnapshots", normalizedMonth));
-  if (snapshot.exists()) {
-    upsertMonthlySnapshot({ id: snapshot.id, ...snapshot.data() });
+  const snapshot = await dataBackend.loadSnapshotByMonth(normalizedMonth);
+  if (snapshot) {
+    upsertMonthlySnapshot(snapshot);
   }
 }
 
@@ -539,10 +551,9 @@ async function loadLatestSnapshotBefore(targetMonth) {
     return;
   }
   state.loadedLatestSnapshotBeforeTargets.add(normalizedMonth);
-  const snap = await getDocs(query(path("monthlySnapshots"), where("month", "<", normalizedMonth), orderBy("month", "desc"), limit(1)));
-  if (!snap.empty) {
-    const snapshot = snap.docs[0];
-    upsertMonthlySnapshot({ id: snapshot.id, ...snapshot.data() });
+  const snapshot = await dataBackend.loadLatestSnapshotBeforeMonth(normalizedMonth);
+  if (snapshot) {
+    upsertMonthlySnapshot(snapshot);
   }
 }
 
@@ -576,27 +587,6 @@ async function ensureSnapshotCoverage() {
     latestBeforeTargets.add(state.desktopDate);
   }
   await Promise.all(Array.from(latestBeforeTargets).map((targetMonth) => loadLatestSnapshotBefore(targetMonth)));
-}
-
-async function hasAnyTransactions() {
-  const snap = await getDocs(query(path("transactions"), orderBy("date", "desc"), limit(1)));
-  return !snap.empty;
-}
-
-async function getEarliestTransactionMonthFromStore() {
-  const snap = await getDocs(query(path("transactions"), orderBy("date", "asc"), limit(1)));
-  if (snap.empty) {
-    return "";
-  }
-  return monthKey(snap.docs[0].data()?.date || "");
-}
-
-async function getEarliestSnapshotMonthFromStore() {
-  const snap = await getDocs(query(path("monthlySnapshots"), orderBy("month", "asc"), limit(1)));
-  if (snap.empty) {
-    return "";
-  }
-  return String(snap.docs[0].data()?.month || "").trim();
 }
 
 function getMobileRangeDateBounds() {
@@ -663,16 +653,7 @@ function getTransactionQueryScope() {
 }
 
 async function loadTransactionsForRange(startDate = "", endDate = "") {
-  const constraints = [];
-  if (startDate) {
-    constraints.push(where("date", ">=", startDate));
-  }
-  if (endDate) {
-    constraints.push(where("date", "<=", endDate));
-  }
-  constraints.push(orderBy("date", "desc"));
-  const snap = await getDocs(query(path("transactions"), ...constraints));
-  return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return dataBackend.loadTransactionsByDateRange(startDate, endDate);
 }
 
 async function refreshTransactionsForCurrentView() {
@@ -692,15 +673,12 @@ async function deleteLegacyTransactions() {
     return;
   }
 
-  const snap = await getDocs(path("transactions"));
-  const legacyDocs = snap.docs.filter((item) => {
-    const data = item.data();
-    return !data.fromItem || !data.toItem;
-  });
+  const transactions = await dataBackend.loadCollectionItems("transactions");
+  const legacyDocs = transactions.filter((item) => !item.fromItem || !item.toItem);
 
-  await Promise.all(legacyDocs.map((item) => deleteDoc(doc(db, "users", state.uid, "transactions", item.id))));
+  await Promise.all(legacyDocs.map((item) => dataBackend.deleteUserCollectionDocument("transactions", item.id)));
   const checkedAt = Date.now();
-  await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+  await dataBackend.saveSettingsPatch({
     legacyTransactionsCheckedAt: checkedAt
   });
   state.settings.legacyTransactionsCheckedAt = checkedAt;
@@ -766,14 +744,16 @@ function bindEvents() {
   $("budgetForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
-    await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+    await dataBackend.saveSettingsPatch({
       monthlyBudget: Number(formData.get("monthlyBudget") || 0)
     });
-    await loadAll();
+    await loadSettingsState();
     renderAll();
   });
+  $("sqliteBridgeRefreshBtn")?.addEventListener("click", () => refreshSQLiteBridgeAdminStatus());
+  $("sqliteRebuildSnapshotsBtn")?.addEventListener("click", rebuildSQLiteBridgeSnapshots);
 
-  $("emailAuthForm").addEventListener("submit", handleEmailAuth);
+  $("emailSessionForm").addEventListener("submit", handleEmailAuth);
   $("desktopViewBtn").addEventListener("click", toggleDesktopMode);
   $("desktopNetWorthCard").addEventListener("click", () => {
     if (!state.desktopMode) {
@@ -890,8 +870,6 @@ function bindEvents() {
   });
   $("desktopSettingsCloseBtn").addEventListener("click", closeDesktopSettingsModal);
   $("desktopSettingsDoneBtn").addEventListener("click", closeDesktopSettingsModal);
-  $("desktopExportItemsBtn").addEventListener("click", handleItemsTransfer);
-  $("itemsImportInput").addEventListener("change", importItemsCsv);
   $("desktopEditSummariesBtn").addEventListener("click", () => {
     const scopeKey = getDesktopSettingsSummaryScopeKey();
     if (!scopeKey) {
@@ -969,34 +947,39 @@ function bindEvents() {
   $("desktopItemForm").addEventListener("submit", saveDesktopSettingsItem);
   $("desktopDeleteBtn").addEventListener("click", deleteSelectedDesktopTransaction);
   $("signOutBtn").addEventListener("click", async () => {
-    $("authError").textContent = "";
-    await signOut(auth);
+    $("sessionError").textContent = "";
+      await appRuntime.signOutSession();
   });
 }
 
 async function handleEmailAuth(event) {
   event.preventDefault();
-  $("authError").textContent = "";
+  $("sessionError").textContent = "";
   const form = event.currentTarget;
 
   const formData = new FormData(form);
   const action = event.submitter?.value || "login";
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "");
+  if (action === "register" && !appRuntime.supportsCredentialRegistration) {
+    $("sessionStatus").textContent = "註冊未啟用";
+    $("sessionError").textContent = "目前這個 SQLite bridge 只開放既有帳號登入。";
+    return;
+  }
 
   try {
-    $("authStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
+    $("sessionStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
 
     if (action === "register") {
-      await createUserWithEmailAndPassword(auth, email, password);
+      await appRuntime.registerWithCredentials(email, password);
     } else {
-      await signInWithEmailAndPassword(auth, email, password);
+      await appRuntime.signInWithCredentials(email, password);
     }
 
     form.reset();
   } catch (error) {
-    $("authStatus").textContent = "登入失敗";
-    $("authError").textContent = formatAuthError(action, error);
+    $("sessionStatus").textContent = "登入失敗";
+    $("sessionError").textContent = formatAuthError(action, error);
   }
 }
 
@@ -1047,14 +1030,14 @@ async function handleTransactionSubmit(event) {
   }
 
   if (!state.desktopMode && state.mobileEditingTransactionId) {
-    await setDoc(doc(db, "users", state.uid, "transactions", state.mobileEditingTransactionId), payload);
+    await dataBackend.saveUserCollectionDocument("transactions", state.mobileEditingTransactionId, payload);
     state.mobileSelectedTransactionId = state.mobileEditingTransactionId;
     state.mobileEditingTransactionId = "";
   } else if (state.desktopMode && state.desktopEditingTransactionId) {
-    await setDoc(doc(db, "users", state.uid, "transactions", state.desktopEditingTransactionId), payload);
+    await dataBackend.saveUserCollectionDocument("transactions", state.desktopEditingTransactionId, payload);
     state.desktopSelectedTransactionId = state.desktopEditingTransactionId;
   } else {
-    const transactionRef = await addDoc(path("transactions"), payload);
+    const transactionRef = await dataBackend.createUserCollectionDocument("transactions", payload);
     if (state.desktopMode) {
       state.desktopSelectedTransactionId = transactionRef.id;
     } else {
@@ -1067,7 +1050,8 @@ async function handleTransactionSubmit(event) {
   event.target.reset();
   closeDesktopTransactionModal();
   setTodayDefault();
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
   if (!state.desktopMode) {
     resetMobileTransactionForm();
@@ -1120,11 +1104,12 @@ async function deleteSelectedMobileTransaction() {
     return;
   }
 
-  await deleteDoc(doc(db, "users", state.uid, "transactions", transaction.id));
+  await dataBackend.deleteUserCollectionDocument("transactions", transaction.id);
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.mobileSelectedTransactionId = "";
   state.mobileEditingTransactionId = "";
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
@@ -1245,29 +1230,32 @@ async function saveMobileItem(event) {
       showMessage("請確認期初餘額為有效數字。", "資料錯誤");
       return;
     }
-    const itemRef = await addDoc(path("accounts"), {
+    const itemRef = await dataBackend.createUserCollectionDocument("accounts", {
       name,
       balance,
       type,
       order,
       createdAt: Date.now()
     });
-    await loadAll();
-    await normalizeItemOrders(type, itemRef.id);
+    await loadReferenceDataState();
+    if (await normalizeItemOrders(type, itemRef.id)) {
+      await loadReferenceDataState();
+    }
   } else {
-    const itemRef = await addDoc(path("categories"), {
+    const itemRef = await dataBackend.createUserCollectionDocument("categories", {
       name,
       type,
       order,
       createdAt: Date.now()
     });
-    await loadAll();
-    await normalizeItemOrders(type, itemRef.id);
+    await loadReferenceDataState();
+    if (await normalizeItemOrders(type, itemRef.id)) {
+      await loadReferenceDataState();
+    }
   }
 
   event.target.reset();
   renderMobileItemFields();
-  await loadAll();
   renderAll();
 }
 
@@ -1311,10 +1299,11 @@ async function deleteSelectedDesktopTransaction() {
     return;
   }
 
-  await deleteDoc(doc(db, "users", state.uid, "transactions", transaction.id));
+  await dataBackend.deleteUserCollectionDocument("transactions", transaction.id);
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.desktopSelectedTransactionId = "";
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
@@ -1432,26 +1421,45 @@ function closeDesktopItemModal() {
   $("desktopItemForm").elements.order.disabled = false;
 }
 
-function renderAuthState(user) {
+function renderSessionState(user) {
   if (!user) {
-    document.body.classList.add("auth-signed-out");
+    document.body.classList.add("session-signed-out");
     $("appShell").classList.add("hidden");
-    $("emailAuthForm").classList.remove("hidden");
-    $("signedInControls").classList.add("hidden");
-    if (!$("authError").textContent) {
-      $("authStatus").textContent = "請輸入 Email 與密碼登入或註冊";
+    $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsCredentialSession);
+    $("sessionControls").classList.add("hidden");
+    if (!$("sessionError").textContent) {
+      if (appRuntime.supportsCredentialSession) {
+        $("sessionStatus").textContent = appRuntime.supportsCredentialRegistration
+          ? "請輸入 Email 與密碼登入或註冊"
+          : "請輸入 Email 與密碼登入";
+      } else {
+        $("sessionStatus").textContent = `等待 ${providerLabel} 後端就緒`;
+      }
     }
     return;
   }
 
-  document.body.classList.remove("auth-signed-out");
-  $("authStatus").textContent = getDisplayName(user);
+  document.body.classList.remove("session-signed-out");
+  $("sessionStatus").textContent = appRuntime.supportsCredentialSession ? getDisplayName(user) : `${providerLabel} 已連線`;
   $("appShell").classList.remove("hidden");
-  $("emailAuthForm").classList.add("hidden");
-  $("signedInControls").classList.remove("hidden");
+  $("emailSessionForm").classList.add("hidden");
+  $("sessionControls").classList.remove("hidden");
+  $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
+  $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSessionSignOut);
+}
+
+function renderCredentialFormOptions() {
+  const registerButton = $("sessionRegisterBtn");
+  if (!registerButton) {
+    return;
+  }
+  registerButton.classList.toggle("hidden", !appRuntime.supportsCredentialRegistration);
 }
 
 function getDisplayName(user) {
+  if (user.displayName) {
+    return user.displayName;
+  }
   return user.email ? user.email.split("@")[0] : user.uid;
 }
 
@@ -1520,7 +1528,7 @@ async function applyRecurringIfNeeded() {
 
   for (const item of state.recurring) {
     const date = `${currentMonth}-${String(Math.min(item.day, 28)).padStart(2, "0")}`;
-    await addDoc(path("transactions"), {
+    await dataBackend.createUserCollectionDocument("transactions", {
       date,
       fromItem: accountItem(item.accountId),
       toItem: categoryItem(item.categoryId),
@@ -1529,15 +1537,17 @@ async function applyRecurringIfNeeded() {
     });
   }
 
-  await updateDoc(doc(db, "users", state.uid, "meta", "settings"), {
+  await dataBackend.saveSettingsPatch({
     recurringAppliedMonth: currentMonth,
     snapshotDirtyFromMonth: earlierMonth(state.settings.snapshotDirtyFromMonth, currentMonth) || currentMonth
   });
   state.settings.snapshotDirtyFromMonth = earlierMonth(state.settings.snapshotDirtyFromMonth, currentMonth) || currentMonth;
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
 }
 
 function renderAll() {
+  renderCredentialFormOptions();
   renderDesktopMode();
   renderOptions();
   renderOverview();
@@ -1546,6 +1556,120 @@ function renderAll() {
   renderCharts();
   renderDesktopSidebar();
   renderDesktopSettings();
+  renderSQLiteBridgeAdmin();
+}
+
+function renderSQLiteBridgeAdmin() {
+  const card = $("sqliteBridgeAdminCard");
+  if (!card) {
+    return;
+  }
+
+  const supported = supportsSQLiteBridgeAdmin() && Boolean(state.uid);
+  card.classList.toggle("hidden", !supported);
+  if (!supported) {
+    return;
+  }
+
+  const statusNode = $("sqliteBridgeAdminStatus");
+  const countsNode = $("sqliteBridgeAdminCounts");
+  const refreshButton = $("sqliteBridgeRefreshBtn");
+  const rebuildButton = $("sqliteRebuildSnapshotsBtn");
+  const { status, loading, rebuilding, error } = state.sqliteBridgeAdmin;
+  const transactionCount = state.hasTransactions ? state.transactions.length : 0;
+  const snapshotCount = state.monthlySnapshots.length;
+  const commonSummaryCount = Object.values(state.commonSummaries || {}).reduce(
+    (sum, summaries) => sum + (Array.isArray(summaries) ? summaries.length : 0),
+    0
+  );
+  const accountCount = state.accounts.length;
+  const categoryCount = state.categories.length;
+
+  if (refreshButton) {
+    refreshButton.disabled = loading || rebuilding;
+    refreshButton.textContent = loading ? "更新中..." : "重新整理狀態";
+  }
+  if (rebuildButton) {
+    rebuildButton.disabled = loading || rebuilding;
+    rebuildButton.textContent = rebuilding ? "重建中..." : "重建 snapshot";
+  }
+
+  if (error) {
+    statusNode.textContent = `bridge 狀態讀取失敗：${error}`;
+    countsNode.textContent = "";
+    return;
+  }
+
+  if (!status) {
+    statusNode.textContent = loading ? "讀取 bridge 狀態中..." : "尚未讀取 bridge 狀態";
+    countsNode.textContent = "";
+    return;
+  }
+
+  const dirtyFromMonth = String(status.settings?.snapshotDirtyFromMonth || "").trim() || "無";
+  const earliestTransactionMonth = String(state.earliestTransactionMonth || status.history?.earliestTransactionMonth || "").trim() || "無";
+  statusNode.textContent = [
+    `DB：${status.dbPath || ""}`,
+    `使用者：${status.userId || state.uid}`,
+    `待重建起始月：${dirtyFromMonth}`,
+    `最早交易月：${earliestTransactionMonth}`
+  ].join(" | ");
+  countsNode.textContent = [
+    `accounts ${accountCount || Number(status.counts?.accounts || 0)}`,
+    `categories ${categoryCount || Number(status.counts?.categories || 0)}`,
+    `transactions ${transactionCount || Number(status.counts?.transactions || 0)}`,
+    `snapshots ${snapshotCount || Number(status.counts?.monthlySnapshots || 0)}`,
+    `common summaries ${commonSummaryCount || Number(status.counts?.commonSummaries || 0)}`
+  ].join(" | ");
+}
+
+async function rebuildSQLiteBridgeSnapshots() {
+  if (!supportsSQLiteBridgeAdmin() || !state.uid) {
+    return;
+  }
+
+  const suggestedMonth = String(state.settings.snapshotDirtyFromMonth || state.earliestTransactionMonth || "").trim();
+  const input = window.prompt("輸入要重建的起始月份，格式為 YYYY-MM。留白代表全部重建。", suggestedMonth);
+  if (input === null) {
+    return;
+  }
+  const fromMonth = String(input || "").trim();
+  if (fromMonth && !/^\d{4}-\d{2}$/.test(fromMonth)) {
+    showMessage("月份格式必須是 YYYY-MM。", "重建失敗");
+    return;
+  }
+  if (!window.confirm(`確定要${fromMonth ? `從 ${fromMonth}` : "全部"}重建 monthly snapshots 嗎？`)) {
+    return;
+  }
+
+  state.sqliteBridgeAdmin.rebuilding = true;
+  state.sqliteBridgeAdmin.error = "";
+  renderSQLiteBridgeAdmin();
+
+  try {
+    const result = await dataBackend.rebuildSnapshots({
+      fromMonth
+    });
+    await Promise.all([
+      loadSettingsState(),
+      loadHistoryMetadata(),
+      loadCurrentViewData({ resetSnapshots: true }),
+      refreshSQLiteBridgeAdminStatus({ silent: true })
+    ]);
+    renderAll();
+    showMessage(
+      `已重建 ${Number(result.snapshotCount || 0)} 個月份快照，涵蓋到 ${String(result.toMonth || "無")}。`,
+      "Snapshot 重建完成"
+    );
+  } catch (error) {
+    const message = error?.message || String(error || "未知錯誤");
+    state.sqliteBridgeAdmin.error = message;
+    renderSQLiteBridgeAdmin();
+    showMessage(`重建失敗：${message}`, "Snapshot 重建失敗");
+  } finally {
+    state.sqliteBridgeAdmin.rebuilding = false;
+    renderSQLiteBridgeAdmin();
+  }
 }
 
 function getDesktopSidebarStructureRenderKey(groups) {
@@ -1557,6 +1681,9 @@ function getDesktopSidebarStructureRenderKey(groups) {
 async function toggleDesktopMode() {
   state.desktopMode = !state.desktopMode;
   localStorage.setItem("financeDesktopMode", String(state.desktopMode));
+  if (state.uid && !appRuntime.supportsCredentialSession) {
+    $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
+  }
   renderDesktopMode();
   renderDesktopLoadingState();
 
@@ -1896,7 +2023,6 @@ function renderDesktopSettings() {
   const selectedItem = getDesktopSettingsItem(state.desktopSettingsSelectedId);
   const movableItems = getMovableDesktopSettingsItems();
   const selectedIndex = movableItems.findIndex((item) => item.key === state.desktopSettingsSelectedId);
-  $("desktopExportItemsBtn").textContent = isItemImportMode() ? "匯入項目" : "匯出項目";
   $("desktopItemEditBtn").disabled = !hasSelection;
   $("desktopItemDeleteBtn").disabled = !hasSelection;
   $("desktopItemMoveUpBtn").disabled = !selectedItem || selectedItem.protected || selectedIndex <= 0;
@@ -2092,14 +2218,18 @@ async function normalizeItemOrders(type, selectedId = "") {
       nextOrder += 10;
     }
     if (getItemOrder(item) !== nextValue) {
-      updates.push(updateDoc(doc(db, "users", state.uid, item.collection, item.id), { order: nextValue }));
+      updates.push({
+        collection: item.collection,
+        id: item.id,
+        order: nextValue
+      });
     }
   });
 
   if (!updates.length) {
     return false;
   }
-  await Promise.all(updates);
+  await dataBackend.batchUpdateUserCollectionOrders(updates);
   if (selectedId) {
     state.desktopSettingsSelectedId = `${isDesktopAccountType(type) ? "account" : "category"}:${selectedId}`;
   }
@@ -2194,16 +2324,20 @@ async function saveDesktopSettingsItem(event) {
     };
     if (editing) {
       const previousBalance = Number(editing.balance || 0);
-      await updateDoc(doc(db, "users", state.uid, "accounts", editing.id), payload);
+      await dataBackend.updateUserCollectionDocument("accounts", editing.id, payload);
       if (previousBalance !== payload.balance) {
         await markSnapshotDirtyFromMonth(getEarliestAccountTransactionMonth(editing.id) || getEarliestTransactionMonth());
       }
-      await loadAll();
-      await normalizeItemOrders(type, editing.id);
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, editing.id)) {
+        await loadReferenceDataState();
+      }
     } else {
-      const itemRef = await addDoc(path("accounts"), { ...payload, createdAt: Date.now() });
-      await loadAll();
-      await normalizeItemOrders(type, itemRef.id);
+      const itemRef = await dataBackend.createUserCollectionDocument("accounts", { ...payload, createdAt: Date.now() });
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, itemRef.id)) {
+        await loadReferenceDataState();
+      }
     }
   } else {
     const payload = {
@@ -2212,18 +2346,21 @@ async function saveDesktopSettingsItem(event) {
       order
     };
     if (editing) {
-      await updateDoc(doc(db, "users", state.uid, "categories", editing.id), payload);
-      await loadAll();
-      await normalizeItemOrders(type, editing.id);
+      await dataBackend.updateUserCollectionDocument("categories", editing.id, payload);
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, editing.id)) {
+        await loadReferenceDataState();
+      }
     } else {
-      const itemRef = await addDoc(path("categories"), { ...payload, createdAt: Date.now() });
-      await loadAll();
-      await normalizeItemOrders(type, itemRef.id);
+      const itemRef = await dataBackend.createUserCollectionDocument("categories", { ...payload, createdAt: Date.now() });
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, itemRef.id)) {
+        await loadReferenceDataState();
+      }
     }
   }
 
   closeDesktopItemModal();
-  await loadAll();
   renderAll();
 }
 
@@ -2244,15 +2381,15 @@ async function deleteDesktopSettingsItem() {
     return;
   }
 
-  await deleteDoc(doc(db, "users", state.uid, item.collection, item.id));
+  await dataBackend.deleteUserCollectionDocument(item.collection, item.id);
   state.desktopSettingsSelectedId = "";
-  await loadAll();
+  await loadReferenceDataState();
   renderAll();
 }
 
 async function moveDesktopSettingsItem(direction) {
   if (await normalizeItemOrders(state.desktopSettingsType)) {
-    await loadAll();
+    await loadReferenceDataState();
   }
 
   const items = getMovableDesktopSettingsItems();
@@ -2267,16 +2404,16 @@ async function moveDesktopSettingsItem(direction) {
   reorderedItems.splice(currentIndex, 1);
   reorderedItems.splice(targetIndex, 0, current);
 
-  await Promise.all(
-    reorderedItems.map((item, index) =>
-      updateDoc(doc(db, "users", state.uid, item.collection, item.id), {
-        order: (index + 1) * 10
-      })
-    )
+  await dataBackend.batchUpdateUserCollectionOrders(
+    reorderedItems.map((item, index) => ({
+      collection: item.collection,
+      id: item.id,
+      order: (index + 1) * 10
+    }))
   );
 
   state.desktopSettingsSelectedId = current.key;
-  await loadAll();
+  await loadReferenceDataState();
   renderAll();
 }
 
@@ -2577,11 +2714,29 @@ function renderCommonSummaryOptions() {
 }
 
 function loadCommonSummaryStore() {
+  if (typeof dataBackend?.loadCommonSummariesState === "function") {
+    return cloneCommonSummaryStore(seededCommonSummaries);
+  }
   const raw = readJsonStorage(COMMON_SUMMARY_STORAGE_KEY, {});
   if (Array.isArray(raw)) {
     return { global: raw };
   }
-  return raw && typeof raw === "object" ? raw : {};
+  if (raw && typeof raw === "object" && Object.keys(raw).length) {
+    return raw;
+  }
+  return cloneCommonSummaryStore(seededCommonSummaries);
+}
+
+function cloneCommonSummaryStore(store) {
+  return store && typeof store === "object" ? JSON.parse(JSON.stringify(store)) : {};
+}
+
+async function loadCommonSummaryState() {
+  if (typeof dataBackend?.loadCommonSummariesState !== "function") {
+    state.commonSummaries = loadCommonSummaryStore();
+    return;
+  }
+  state.commonSummaries = cloneCommonSummaryStore(await dataBackend.loadCommonSummariesState());
 }
 
 function getCommonSummaries(scopeKey) {
@@ -2590,13 +2745,17 @@ function getCommonSummaries(scopeKey) {
   return (scoped.length ? scoped : fallback).filter(Boolean).slice(0, 6);
 }
 
-function saveCommonSummaries(scopeKey, summaries) {
+async function saveCommonSummaries(scopeKey, summaries) {
   state.commonSummaries[scopeKey] = [...new Set(summaries.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 6);
-  localStorage.setItem(COMMON_SUMMARY_STORAGE_KEY, JSON.stringify(state.commonSummaries));
+  if (typeof dataBackend?.replaceCommonSummariesState === "function") {
+    await dataBackend.replaceCommonSummariesState(state.commonSummaries);
+  } else {
+    localStorage.setItem(COMMON_SUMMARY_STORAGE_KEY, JSON.stringify(state.commonSummaries));
+  }
   renderCommonSummaryOptions();
 }
 
-function saveSummaryFromInput(inputId, formKind) {
+async function saveSummaryFromInput(inputId, formKind) {
   const value = $(inputId).value.trim();
   const scopeKey = getSummaryScopeKey(formKind);
   if (!value || !scopeKey) {
@@ -2606,7 +2765,7 @@ function saveSummaryFromInput(inputId, formKind) {
   if (!window.confirm(`確定將「${value}」存為「${itemName}」的常用摘要嗎？`)) {
     return;
   }
-  saveCommonSummaries(scopeKey, [value, ...getCommonSummaries(scopeKey).filter((summary) => summary !== value)]);
+  await saveCommonSummaries(scopeKey, [value, ...getCommonSummaries(scopeKey).filter((summary) => summary !== value)]);
 }
 
 function bindSummaryInput(inputId, menuId, formKind) {
@@ -2672,8 +2831,14 @@ function renderCommonSummaryFields() {
 
 function saveCommonSummaryForm(event) {
   event.preventDefault();
-  saveCommonSummaries(state.commonSummaryEditingScopeKey || getActiveSummaryScopeKey(), Array.from(new FormData(event.target).getAll("summary")));
-  closeCommonSummaryModal();
+  Promise.resolve(
+    saveCommonSummaries(
+      state.commonSummaryEditingScopeKey || getActiveSummaryScopeKey(),
+      Array.from(new FormData(event.target).getAll("summary"))
+    )
+  ).then(() => {
+    closeCommonSummaryModal();
+  });
 }
 
 function updateSaveSummaryButtons() {
@@ -3726,13 +3891,14 @@ async function saveEditedTransactions() {
       return;
     }
 
-    await setDoc(doc(db, "users", state.uid, "transactions", row.dataset.transactionId), payload);
+    await dataBackend.saveUserCollectionDocument("transactions", row.dataset.transactionId, payload);
     dirtyMonth = earlierMonth(dirtyMonth, earlierMonth(monthKey(transaction.date), monthKey(payload.date)));
   }
 
   await markSnapshotDirtyFromMonth(dirtyMonth);
   state.transactionEditMode = false;
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
@@ -3947,315 +4113,6 @@ function renderCharts() {
       maintainAspectRatio: false
     }
   });
-}
-
-function handleItemsTransfer() {
-  if (isItemImportMode()) {
-    $("itemsImportInput").click();
-    return;
-  }
-  exportItemsCsv();
-}
-
-function isItemImportMode() {
-  if (state.accounts.length === 0 && state.categories.length === 0) {
-    return true;
-  }
-  if (state.hasTransactions) {
-    return false;
-  }
-  const accountNames = new Set(PROTECTED_ITEMS.filter((item) => item.collection === "accounts").map((item) => item.name));
-  const categoryNames = new Set(DEFAULT_CATEGORIES.map((item) => `${item.type}:${item.name}`));
-  return (
-    state.accounts.every((account) => accountNames.has(account.name)) &&
-    state.categories.every((category) => categoryNames.has(`${category.type}:${category.name}`))
-  );
-}
-
-function exportItemsCsv() {
-  const rows = [["類別", "項目名稱", "期初餘額", "次序", "保護項目", "ID", "常用摘要"]];
-
-  state.accounts
-    .map((account) => ({
-      type: inferAccountType(account),
-      name: account.name,
-      balance: Number(account.balance || 0),
-      order: getItemOrder(account),
-      protected: isProtectedDataItem("accounts", account),
-      id: account.id
-    }))
-    .sort(sortItemsByTypeAndOrder)
-    .forEach((item) => {
-      rows.push([
-        desktopSettingsTypeLabel(item.type),
-        item.name,
-        item.balance,
-        item.order,
-        item.protected ? "是" : "否",
-        item.id,
-        ""
-      ]);
-    });
-
-  state.categories
-    .map((category) => ({
-      type: category.type,
-      name: category.name,
-      balance: "",
-      order: getItemOrder(category),
-      protected: isProtectedDataItem("categories", category),
-      id: category.id
-    }))
-    .sort(sortItemsByTypeAndOrder)
-    .forEach((item) => {
-      rows.push([
-        desktopSettingsTypeLabel(item.type),
-        item.name,
-        item.balance,
-        item.order,
-        item.protected ? "是" : "否",
-        item.id,
-        getCommonSummaries(`category:${item.id}`).join("；")
-      ]);
-    });
-
-  downloadCsv(rows, `items-${todayKey()}.csv`);
-}
-
-function sortItemsByTypeAndOrder(a, b) {
-  const typeCompare = getItemTypeOrder(a.type) - getItemTypeOrder(b.type);
-  if (typeCompare !== 0) {
-    return typeCompare;
-  }
-  return sortItemsByOrder(a, b);
-}
-
-function getItemTypeOrder(type) {
-  return {
-    asset: 0,
-    liability: 1,
-    income: 2,
-    expense: 3,
-    nonOperatingIncome: 4,
-    nonOperatingExpense: 5
-  }[type] ?? 99;
-}
-
-async function importItemsCsv(event) {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) {
-    return;
-  }
-  if (!window.confirm("確定要匯入項目資料嗎？同名同類別項目會被更新。")) {
-    return;
-  }
-
-  const rows = parseCsv(await file.text());
-  const headers = rows.shift() || [];
-  const requiredHeaders = ["類別", "項目名稱"];
-  const missingHeaders = requiredHeaders.filter((header) => !headers.some((value) => String(value || "").trim() === header));
-  if (missingHeaders.length) {
-    showMessage(`匯入失敗：缺少欄位 ${missingHeaders.join("、")}。`, "匯入失敗");
-    return;
-  }
-
-  const importedSummaries = [];
-  let createdCount = 0;
-  let updatedCount = 0;
-  let skippedCount = 0;
-  let duplicateNameSkippedCount = 0;
-  const duplicateNameSamples = [];
-  for (const row of rows) {
-    const record = rowToObject(headers, row);
-    const type = itemTypeFromLabel(record["類別"]);
-    const name = normalizeItemName(record["項目名稱"]);
-    const order = parseNonNegativeInteger(record["次序"] || getNextItemOrder(type));
-    if (!type || !name) {
-      skippedCount += 1;
-      continue;
-    }
-    if (order === null) {
-      skippedCount += 1;
-      continue;
-    }
-    const balance = parseFiniteNumber(record["期初餘額"] || 0);
-    if (isDesktopAccountType(type) && balance === null) {
-      skippedCount += 1;
-      continue;
-    }
-    const summaries = String(record["常用摘要"] || "")
-      .split(/[；;]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-
-    if (isDesktopAccountType(type)) {
-      const existing = state.accounts.find((account) => inferAccountType(account) === type && account.name === name);
-      const conflict = findConflictingItemByName(name, {
-        excludeCollection: existing ? "accounts" : "",
-        excludeId: existing?.id || ""
-      });
-      if (conflict) {
-        skippedCount += 1;
-        duplicateNameSkippedCount += 1;
-        if (duplicateNameSamples.length < 10) {
-          duplicateNameSamples.push(name);
-        }
-        continue;
-      }
-      const payload = { name, type, balance, order };
-      if (existing) {
-        await updateDoc(doc(db, "users", state.uid, "accounts", existing.id), payload);
-        updatedCount += 1;
-      } else {
-        await addDoc(path("accounts"), { ...payload, createdAt: Date.now() });
-        createdCount += 1;
-      }
-      continue;
-    }
-
-    const existing = state.categories.find((category) => category.type === type && category.name === name);
-    const conflict = findConflictingItemByName(name, {
-      excludeCollection: existing ? "categories" : "",
-      excludeId: existing?.id || ""
-    });
-    if (conflict) {
-      skippedCount += 1;
-      duplicateNameSkippedCount += 1;
-      if (duplicateNameSamples.length < 10) {
-        duplicateNameSamples.push(name);
-      }
-      continue;
-    }
-    const payload = { name, type, order };
-    let categoryId = existing?.id || "";
-    if (existing) {
-      await updateDoc(doc(db, "users", state.uid, "categories", existing.id), payload);
-      updatedCount += 1;
-    } else {
-      const itemRef = await addDoc(path("categories"), { ...payload, createdAt: Date.now() });
-      categoryId = itemRef.id;
-      createdCount += 1;
-    }
-    if (categoryId) {
-      importedSummaries.push({ key: `category:${categoryId}`, summaries });
-    }
-  }
-
-  await loadAll();
-  await normalizeAllItemOrders();
-  importedSummaries.forEach((item) => {
-    if (item.summaries.length) {
-      state.commonSummaries[item.key] = item.summaries.slice(0, 6);
-      return;
-    }
-    delete state.commonSummaries[item.key];
-  });
-  localStorage.setItem(COMMON_SUMMARY_STORAGE_KEY, JSON.stringify(state.commonSummaries));
-  await loadAll();
-  renderAll();
-  renderDesktopSettings();
-  const messages = [`項目匯入完成：新增 ${createdCount} 筆，更新 ${updatedCount} 筆，略過 ${skippedCount} 筆。`];
-  if (duplicateNameSkippedCount > 0) {
-    messages.push(`因項目名稱重複而略過 ${duplicateNameSkippedCount} 筆。`);
-    messages.push(`重複名稱（前 10 筆）：${duplicateNameSamples.join("、")}`);
-  }
-  showMessage(messages.join("\n"), "項目匯入結果");
-}
-
-function detectCsvDelimiter(text) {
-  const lines = String(text || "")
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const sample = lines[0] || "";
-  const counts = [
-    { delimiter: ",", count: (sample.match(/,/g) || []).length },
-    { delimiter: "\t", count: (sample.match(/\t/g) || []).length },
-    { delimiter: ";", count: (sample.match(/;/g) || []).length }
-  ].sort((a, b) => b.count - a.count);
-  return counts[0].count > 0 ? counts[0].delimiter : ",";
-}
-
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let inQuotes = false;
-  const input = String(text || "").replace(/^\uFEFF/, "");
-  const delimiter = detectCsvDelimiter(input);
-
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input[index];
-    const next = input[index + 1];
-    if (char === '"' && inQuotes && next === '"') {
-      cell += '"';
-      index += 1;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === delimiter && !inQuotes) {
-      row.push(cell);
-      cell = "";
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && next === "\n") {
-        index += 1;
-      }
-      row.push(cell);
-      if (row.some((value) => value !== "")) {
-        rows.push(row);
-      }
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-
-  row.push(cell);
-  if (row.some((value) => value !== "")) {
-    rows.push(row);
-  }
-  return rows;
-}
-
-function rowToObject(headers, row) {
-  return Object.fromEntries(headers.map((header, index) => [String(header || "").trim(), row[index] ?? ""]));
-}
-
-function itemTypeFromLabel(label) {
-  const value = String(label || "").trim();
-  const entries = ["asset", "liability", "income", "expense", "nonOperatingIncome", "nonOperatingExpense"];
-  return entries.find((type) => desktopSettingsTypeLabel(type) === value || type === value) || "";
-}
-
-function resolveImportItem(name) {
-  const text = String(name || "").trim();
-  const account = state.accounts.find((item) => item.name === text);
-  if (account) {
-    return { kind: "account", id: account.id, name: account.name, type: inferAccountType(account) };
-  }
-  const category = state.categories.find((item) => item.name === text);
-  if (category) {
-    return { kind: "category", id: category.id, name: category.name, type: category.type };
-  }
-  return emptyTransactionItem();
-}
-
-function downloadCsv(rows, filename) {
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function csvCell(value) {
-  const text = String(value ?? "");
-  return `"${text.replaceAll('"', '""')}"`;
 }
 
 function escapeHtml(value) {
