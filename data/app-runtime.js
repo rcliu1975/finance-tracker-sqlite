@@ -69,21 +69,21 @@ export async function loadAppRuntime() {
         : sqliteSeedPath
         ? "目前使用 SQLite seed + localStorage 模式。初次載入會讀取 seed，之後修改會保存在目前瀏覽器。"
         : "目前使用本機記憶體版 SQLite backend，重新整理頁面後資料不保留。",
-      supportsEmailAuth: false,
-      supportsSignOut: false,
-      observeAuthState(callback) {
+      supportsCredentialSession: false,
+      supportsSessionSignOut: false,
+      observeSessionState(callback) {
         queueMicrotask(() => {
           callback(localUser);
         });
         return () => {};
       },
-      registerWithEmail() {
+      registerWithCredentials() {
         return Promise.reject(new Error("SQLite 本機模式目前不支援 Email 註冊。"));
       },
-      signInWithEmail() {
+      signInWithCredentials() {
         return Promise.reject(new Error("SQLite 本機模式目前不支援 Email 登入。"));
       },
-      signOut() {
+      signOutSession() {
         return Promise.resolve();
       }
     };
@@ -105,21 +105,21 @@ export async function loadAppRuntime() {
     providerKey,
     providerLabel: "Firebase",
     modeNotice: "",
-    supportsEmailAuth: true,
-    supportsSignOut: true,
-    observeAuthState(callback) {
+    supportsCredentialSession: true,
+    supportsSessionSignOut: true,
+    observeSessionState(callback) {
       if (!auth) {
         return () => {};
       }
       return onAuthStateChanged(auth, callback);
     },
-    registerWithEmail(email, password) {
+    registerWithCredentials(email, password) {
       return createUserWithEmailAndPassword(auth, email, password);
     },
-    signInWithEmail(email, password) {
+    signInWithCredentials(email, password) {
       return signInWithEmailAndPassword(auth, email, password);
     },
-    signOut() {
+    signOutSession() {
       return signOut(auth);
     }
   };

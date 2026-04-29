@@ -275,7 +275,7 @@ function getLatestUsableSnapshotBefore(month) {
 if (hasBackendConfig) {
   bindEvents();
 
-  appRuntime.observeAuthState(async (user) => {
+  appRuntime.observeSessionState(async (user) => {
     runtimeSessionObserved = true;
     if (!user) {
       state.uid = null;
@@ -955,7 +955,7 @@ function bindEvents() {
   $("desktopDeleteBtn").addEventListener("click", deleteSelectedDesktopTransaction);
   $("signOutBtn").addEventListener("click", async () => {
     $("sessionError").textContent = "";
-    await appRuntime.signOut();
+      await appRuntime.signOutSession();
   });
 }
 
@@ -973,9 +973,9 @@ async function handleEmailAuth(event) {
     $("sessionStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
 
     if (action === "register") {
-      await appRuntime.registerWithEmail(email, password);
+      await appRuntime.registerWithCredentials(email, password);
     } else {
-      await appRuntime.signInWithEmail(email, password);
+      await appRuntime.signInWithCredentials(email, password);
     }
 
     form.reset();
@@ -1427,10 +1427,10 @@ function renderAuthState(user) {
   if (!user) {
     document.body.classList.add("session-signed-out");
     $("appShell").classList.add("hidden");
-    $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsEmailAuth);
+    $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsCredentialSession);
     $("sessionControls").classList.add("hidden");
     if (!$("sessionError").textContent) {
-      $("sessionStatus").textContent = appRuntime.supportsEmailAuth
+      $("sessionStatus").textContent = appRuntime.supportsCredentialSession
         ? "請輸入 Email 與密碼登入或註冊"
         : `等待 ${providerLabel} 後端就緒`;
     }
@@ -1438,12 +1438,12 @@ function renderAuthState(user) {
   }
 
   document.body.classList.remove("session-signed-out");
-  $("sessionStatus").textContent = appRuntime.supportsEmailAuth ? getDisplayName(user) : `${providerLabel} 已連線`;
+  $("sessionStatus").textContent = appRuntime.supportsCredentialSession ? getDisplayName(user) : `${providerLabel} 已連線`;
   $("appShell").classList.remove("hidden");
   $("emailSessionForm").classList.add("hidden");
   $("sessionControls").classList.remove("hidden");
   $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
-  $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSignOut);
+  $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSessionSignOut);
 }
 
 function getDisplayName(user) {
@@ -1670,7 +1670,7 @@ function getDesktopSidebarStructureRenderKey(groups) {
 async function toggleDesktopMode() {
   state.desktopMode = !state.desktopMode;
   localStorage.setItem("financeDesktopMode", String(state.desktopMode));
-  if (state.uid && !appRuntime.supportsEmailAuth) {
+  if (state.uid && !appRuntime.supportsCredentialSession) {
     $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
   }
   renderDesktopMode();
