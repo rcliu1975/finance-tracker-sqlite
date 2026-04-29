@@ -291,9 +291,7 @@ function resetStateData() {
   state.accounts = [];
   state.categories = [];
   state.transactions = [];
-  state.monthlySnapshots = [];
-  state.loadedSnapshotMonths.clear();
-  state.loadedLatestSnapshotBeforeTargets.clear();
+  resetSnapshotState();
   state.hasTransactions = false;
   state.earliestTransactionMonth = "";
   state.earliestSnapshotMonth = "";
@@ -306,6 +304,12 @@ function resetStateData() {
     legacyTransactionsCheckedAt: 0
   };
   invalidateDerivedDataCache();
+}
+
+function resetSnapshotState() {
+  state.monthlySnapshots = [];
+  state.loadedSnapshotMonths.clear();
+  state.loadedLatestSnapshotBeforeTargets.clear();
 }
 
 async function markSnapshotDirtyFromMonth(month) {
@@ -444,19 +448,21 @@ async function ensureProtectedItems(accounts, categories) {
 }
 
 async function loadAll() {
-  state.monthlySnapshots = [];
-  state.loadedSnapshotMonths.clear();
-  state.loadedLatestSnapshotBeforeTargets.clear();
-  const [{ accounts, categories, recurring }, settingsData, historyMetadata] = await Promise.all([
-    dataBackend.loadReferenceData(),
-    dataBackend.loadSettingsState(),
-    dataBackend.loadHistoryMetadata()
-  ]);
+  resetSnapshotState();
+  await Promise.all([loadReferenceDataState(), loadSettingsState(), loadHistoryMetadata()]);
+  await loadCurrentViewData();
+}
+
+async function loadReferenceDataState() {
+  const { accounts, categories, recurring } = await dataBackend.loadReferenceData();
   state.accounts = accounts;
   state.categories = categories;
   state.recurring = recurring;
-  state.earliestTransactionMonth = historyMetadata.earliestTransactionMonth;
-  state.earliestSnapshotMonth = historyMetadata.earliestSnapshotMonth;
+  invalidateDerivedDataCache();
+}
+
+async function loadSettingsState() {
+  const settingsData = await dataBackend.loadSettingsState();
   state.settings = {
     monthlyBudget: 0,
     recurringAppliedMonth: "",
@@ -464,9 +470,20 @@ async function loadAll() {
     legacyTransactionsCheckedAt: 0,
     ...settingsData
   };
+}
+
+async function loadHistoryMetadata() {
+  const historyMetadata = await dataBackend.loadHistoryMetadata();
+  state.earliestTransactionMonth = historyMetadata.earliestTransactionMonth;
+  state.earliestSnapshotMonth = historyMetadata.earliestSnapshotMonth;
   state.hasTransactions = historyMetadata.hasTransactions;
+}
+
+async function loadCurrentViewData({ resetSnapshots = false } = {}) {
+  if (resetSnapshots) {
+    resetSnapshotState();
+  }
   await refreshTransactionsForCurrentView();
-  invalidateDerivedDataCache();
 }
 
 function upsertMonthlySnapshot(snapshot) {
@@ -695,7 +712,7 @@ function bindEvents() {
     await dataBackend.saveSettingsPatch({
       monthlyBudget: Number(formData.get("monthlyBudget") || 0)
     });
-    await loadAll();
+    await loadSettingsState();
     renderAll();
   });
 
@@ -993,7 +1010,8 @@ async function handleTransactionSubmit(event) {
   event.target.reset();
   closeDesktopTransactionModal();
   setTodayDefault();
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
   if (!state.desktopMode) {
     resetMobileTransactionForm();
@@ -1050,7 +1068,8 @@ async function deleteSelectedMobileTransaction() {
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.mobileSelectedTransactionId = "";
   state.mobileEditingTransactionId = "";
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
@@ -1178,8 +1197,10 @@ async function saveMobileItem(event) {
       order,
       createdAt: Date.now()
     });
-    await loadAll();
-    await normalizeItemOrders(type, itemRef.id);
+    await loadReferenceDataState();
+    if (await normalizeItemOrders(type, itemRef.id)) {
+      await loadReferenceDataState();
+    }
   } else {
     const itemRef = await dataBackend.createUserCollectionDocument("categories", {
       name,
@@ -1187,13 +1208,14 @@ async function saveMobileItem(event) {
       order,
       createdAt: Date.now()
     });
-    await loadAll();
-    await normalizeItemOrders(type, itemRef.id);
+    await loadReferenceDataState();
+    if (await normalizeItemOrders(type, itemRef.id)) {
+      await loadReferenceDataState();
+    }
   }
 
   event.target.reset();
   renderMobileItemFields();
-  await loadAll();
   renderAll();
 }
 
@@ -1240,7 +1262,8 @@ async function deleteSelectedDesktopTransaction() {
   await dataBackend.deleteUserCollectionDocument("transactions", transaction.id);
   await markSnapshotDirtyFromMonth(monthKey(transaction.date));
   state.desktopSelectedTransactionId = "";
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
@@ -1466,7 +1489,8 @@ async function applyRecurringIfNeeded() {
     snapshotDirtyFromMonth: earlierMonth(state.settings.snapshotDirtyFromMonth, currentMonth) || currentMonth
   });
   state.settings.snapshotDirtyFromMonth = earlierMonth(state.settings.snapshotDirtyFromMonth, currentMonth) || currentMonth;
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
 }
 
 function renderAll() {
@@ -2134,12 +2158,16 @@ async function saveDesktopSettingsItem(event) {
       if (previousBalance !== payload.balance) {
         await markSnapshotDirtyFromMonth(getEarliestAccountTransactionMonth(editing.id) || getEarliestTransactionMonth());
       }
-      await loadAll();
-      await normalizeItemOrders(type, editing.id);
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, editing.id)) {
+        await loadReferenceDataState();
+      }
     } else {
       const itemRef = await dataBackend.createUserCollectionDocument("accounts", { ...payload, createdAt: Date.now() });
-      await loadAll();
-      await normalizeItemOrders(type, itemRef.id);
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, itemRef.id)) {
+        await loadReferenceDataState();
+      }
     }
   } else {
     const payload = {
@@ -2149,17 +2177,21 @@ async function saveDesktopSettingsItem(event) {
     };
     if (editing) {
       await dataBackend.updateUserCollectionDocument("categories", editing.id, payload);
-      await loadAll();
-      await normalizeItemOrders(type, editing.id);
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, editing.id)) {
+        await loadReferenceDataState();
+      }
     } else {
       const itemRef = await dataBackend.createUserCollectionDocument("categories", { ...payload, createdAt: Date.now() });
-      await loadAll();
-      await normalizeItemOrders(type, itemRef.id);
+      await loadReferenceDataState();
+      if (await normalizeItemOrders(type, itemRef.id)) {
+        await loadReferenceDataState();
+      }
     }
   }
 
   closeDesktopItemModal();
-  await loadAll();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
@@ -2182,13 +2214,13 @@ async function deleteDesktopSettingsItem() {
 
   await dataBackend.deleteUserCollectionDocument(item.collection, item.id);
   state.desktopSettingsSelectedId = "";
-  await loadAll();
+  await loadReferenceDataState();
   renderAll();
 }
 
 async function moveDesktopSettingsItem(direction) {
   if (await normalizeItemOrders(state.desktopSettingsType)) {
-    await loadAll();
+    await loadReferenceDataState();
   }
 
   const items = getMovableDesktopSettingsItems();
@@ -2212,7 +2244,7 @@ async function moveDesktopSettingsItem(direction) {
   );
 
   state.desktopSettingsSelectedId = current.key;
-  await loadAll();
+  await loadReferenceDataState();
   renderAll();
 }
 
@@ -3675,7 +3707,8 @@ async function saveEditedTransactions() {
 
   await markSnapshotDirtyFromMonth(dirtyMonth);
   state.transactionEditMode = false;
-  await loadAll();
+  await loadHistoryMetadata();
+  await loadCurrentViewData({ resetSnapshots: true });
   renderAll();
 }
 
