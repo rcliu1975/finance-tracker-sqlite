@@ -27,6 +27,11 @@ def load_script_module(script_name: str, module_name: str):
 
 SNAPSHOTS = load_script_module("rebuild-sqlite-snapshots.py", "rebuild_sqlite_snapshots_bridge")
 
+FAILED_LOGIN_WINDOW_SECONDS = 300
+FAILED_LOGIN_MAX_ATTEMPTS = 5
+FAILED_LOGIN_DELAY_SECONDS = 1.0
+FAILED_LOGIN_LOCKOUT_SECONDS = 900
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Expose a SQLite finance database over a local HTTP bridge.")
@@ -521,6 +526,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_cors_headers()
+        self.send_security_headers()
         self.end_headers()
 
     def do_GET(self):
@@ -564,10 +570,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if path == "/session/login" and method == "POST":
             if not (self.server.login_email and self.server.login_password):
                 raise ValueError("目前 bridge 沒有啟用登入模式。")
+            client_id = self.get_client_identifier()
+            self.ensure_login_allowed(client_id)
             email = str((payload or {}).get("email", "") or "").strip()
             password = str((payload or {}).get("password", "") or "")
             if email != self.server.login_email or password != self.server.login_password:
+                self.record_failed_login(client_id)
+                time.sleep(FAILED_LOGIN_DELAY_SECONDS)
                 raise PermissionError("Email 或密碼不正確。")
+            self.clear_failed_login(client_id)
             token = secrets.token_urlsafe(32)
             expires_at = int(time.time()) + int(self.server.session_ttl_seconds)
             user = bridge_user_payload(self.server.login_email, self.server.user_id)
@@ -775,6 +786,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_cors_headers()
+        self.send_security_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -784,6 +796,55 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+
+    def send_security_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+
+    def get_client_identifier(self) -> str:
+        forwarded_for = str(self.headers.get("X-Forwarded-For", "") or "").strip()
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+        return str(self.client_address[0] if self.client_address else "unknown")
+
+    def ensure_login_allowed(self, client_id: str):
+        if not client_id:
+            return
+        entry = self.server.failed_login_attempts.get(client_id)
+        if not entry:
+            return
+        now = int(time.time())
+        locked_until = int(entry.get("lockedUntil", 0) or 0)
+        if locked_until > now:
+            raise PermissionError("登入失敗次數過多，請稍後再試。")
+        if locked_until:
+            self.server.failed_login_attempts.pop(client_id, None)
+
+    def record_failed_login(self, client_id: str):
+        if not client_id:
+            return
+        now = int(time.time())
+        entry = self.server.failed_login_attempts.get(client_id) or {"attempts": [], "lockedUntil": 0}
+        recent_attempts = [
+            int(timestamp)
+            for timestamp in entry.get("attempts", [])
+            if now - int(timestamp) <= FAILED_LOGIN_WINDOW_SECONDS
+        ]
+        recent_attempts.append(now)
+        locked_until = int(entry.get("lockedUntil", 0) or 0)
+        if len(recent_attempts) >= FAILED_LOGIN_MAX_ATTEMPTS:
+            locked_until = now + FAILED_LOGIN_LOCKOUT_SECONDS
+        self.server.failed_login_attempts[client_id] = {
+            "attempts": recent_attempts,
+            "lockedUntil": locked_until,
+        }
+
+    def clear_failed_login(self, client_id: str):
+        if not client_id:
+            return
+        self.server.failed_login_attempts.pop(client_id, None)
 
     def log_message(self, format: str, *args):
         return
@@ -802,6 +863,7 @@ def main() -> int:
     server.login_password = str(args.login_password or "")
     server.session_ttl_seconds = int(args.session_ttl_seconds or 43200)
     server.sessions = {}
+    server.failed_login_attempts = {}
     print(f"SQLite bridge listening on http://{args.host}:{args.port} user_id={args.user_id} db={db_path}")
     if server.login_email and server.login_password:
         print(f"SQLite bridge login enabled for {server.login_email}")
