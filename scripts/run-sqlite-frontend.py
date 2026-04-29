@@ -54,6 +54,16 @@ def wait_for_health(url: str, timeout_seconds: float = 10.0) -> None:
     raise RuntimeError(f"bridge 啟動逾時：{url}")
 
 
+def bridge_health_host(bridge_host: str, open_host: str) -> str:
+    host = str(bridge_host or "").strip()
+    if host and host not in {"0.0.0.0", "::"}:
+        return host
+    public_host = str(open_host or "").strip()
+    if public_host in {"", "0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return public_host
+
+
 def terminate_process(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
@@ -105,7 +115,7 @@ def main() -> int:
             ],
             cwd=repo_root,
         )
-        wait_for_health(f"http://{args.open_host}:{args.bridge_port}/health")
+        wait_for_health(f"http://{bridge_health_host(args.bridge_host, args.open_host)}:{args.bridge_port}/health")
 
         serve_process = subprocess.Popen(
             [
