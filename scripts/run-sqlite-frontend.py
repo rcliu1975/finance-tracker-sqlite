@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -62,6 +63,19 @@ def bridge_health_host(bridge_host: str, open_host: str) -> str:
     if public_host in {"", "0.0.0.0", "::"}:
         return "127.0.0.1"
     return public_host
+
+
+def detect_local_ipv4_addresses() -> list[str]:
+    addresses: set[str] = set()
+    candidates = {socket.gethostname(), socket.getfqdn(), "localhost"}
+    for name in candidates:
+        try:
+            for family, _, _, _, sockaddr in socket.getaddrinfo(name, None, socket.AF_INET):
+                if family == socket.AF_INET and sockaddr and sockaddr[0] not in {"127.0.0.1", "0.0.0.0"}:
+                    addresses.add(str(sockaddr[0]))
+        except socket.gaierror:
+            continue
+    return sorted(addresses)
 
 
 def terminate_process(process: subprocess.Popen[bytes]) -> None:
@@ -131,9 +145,16 @@ def main() -> int:
 
         frontend_url = f"http://{args.open_host}:{args.serve_port}"
         bridge_url = f"http://{args.open_host}:{args.bridge_port}"
-        print(f"SQLite bridge: {bridge_url}")
-        print(f"Frontend: {frontend_url}")
-        print("按 Ctrl+C 可同時停止 bridge 與前端 server。")
+        print(f"SQLite bridge: {bridge_url}", flush=True)
+        print(f"Frontend: {frontend_url}", flush=True)
+        if args.serve_host in {"0.0.0.0", "::"} or args.bridge_host in {"0.0.0.0", "::"}:
+            local_ips = detect_local_ipv4_addresses()
+            if local_ips:
+                print("可用區網位址:", flush=True)
+                for address in local_ips:
+                    print(f"  Frontend: http://{address}:{args.serve_port}", flush=True)
+                    print(f"  Bridge:   http://{address}:{args.bridge_port}", flush=True)
+        print("按 Ctrl+C 可同時停止 bridge 與前端 server。", flush=True)
 
         while True:
             bridge_code = bridge_process.poll()

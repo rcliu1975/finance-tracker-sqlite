@@ -224,8 +224,8 @@ npm run sqlite:export-records -- \
 
 - `index.html`: 主要頁面結構
 - `styles.css`: 視覺樣式與 RWD
-- `app.js`: Firebase 連線、資料處理與畫面渲染
-- `.env.example`: 本機與部署用 Firebase / Emulator 設定範本
+- `app.js`: 前端資料流程、互動與畫面渲染
+- `.env.example`: 本機與部署用設定範本
 - `app-config.example.js`: 通用前端設定範本
 - `firebase-config.example.js`: 舊檔名相容範本
 - `firebase.json`: Firebase Hosting 設定
@@ -381,6 +381,10 @@ APP_SQLITE_SEED_PATH=/sqlite-seed.json
 npm run serve
 ```
 
+## Firebase / Firestore 相容流程
+
+下面這些流程只在你還需要 Firebase / Firestore 相容模式時才需要；如果你現在 focus 在 SQLite，可先略過。
+
 ### Production 連線
 
 1. 複製設定檔：
@@ -451,7 +455,7 @@ npm run firebase:emulators
 
 如果經 Tailscale 連線，請把 `localhost` 換成主機的 Tailscale IP 或主機名。
 
-## Firebase Hosting 部署
+### Firebase Hosting 部署
 
 先確認：
 
@@ -488,7 +492,7 @@ macOS / Linux / Git Bash：
 
 部署完成後，Firebase CLI 會輸出 Hosting 網址。
 
-## 孤兒使用者資料清理
+### 孤兒使用者資料清理
 
 如果 Firebase Authentication 已刪除某些帳號，但 Firestore `users/{uid}` 還留著資料，可用下列指令清理：
 
@@ -504,7 +508,7 @@ npm run cleanup:orphan-users:apply -- --confirm-project <projectId>
 - `--project <projectId>`：可覆寫 `.firebaserc` 的 default project id
 - 需要先完成 `firebase login`
 
-## Command line 匯入記錄
+### Command line 匯入記錄
 
 大量資料匯入時，建議直接用 command line。這支工具使用和既有資料模型一致的匯入語意：
 
@@ -537,7 +541,7 @@ npm run import:records -- --csv ./records.csv --uid <uid> --production --apply
 - `--emulator` / `--production` 若都沒指定，會依 `.env` 的 `FIREBASE_USE_EMULATORS` 判定
 - 用 `--email` 查正式 Firebase 時，需要先完成 `firebase login`
 
-## Command line 重建月快照
+### Command line 重建月快照
 
 這支工具會依 `accounts`、`categories`、`transactions` 重建：
 
@@ -572,7 +576,7 @@ npm run rebuild:monthly-snapshots -- --uid <uid> --production --from 2024-01 --a
   - `rebuiltAt`
   - `sourceLastTransactionDate`
 
-## Firebase Hosting 發佈內容
+### Firebase Hosting 發佈內容
 
 專案目前已整理成適合直接發佈到 Firebase Hosting：
 
@@ -580,7 +584,7 @@ npm run rebuild:monthly-snapshots -- --uid <uid> --production --from 2024-01 --a
 - 不會部署 `.git`、README、部署腳本、Firestore 規則、範例設定檔與本機測試輸出
 - 已補上 `favicon.svg`，避免頁面出現 favicon 404
 
-## 目前 Firebase 資料結構
+### 目前 Firebase 資料結構
 
 - `users/{uid}/accounts`
   項目欄位包含：`name`、`balance`、`type`、`order`。

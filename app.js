@@ -1432,16 +1432,17 @@ function renderAuthState(user) {
     if (!$("authError").textContent) {
       $("authStatus").textContent = appRuntime.supportsEmailAuth
         ? "請輸入 Email 與密碼登入或註冊"
-        : `${providerLabel} 後端尚未連線`;
+        : `等待 ${providerLabel} 後端就緒`;
     }
     return;
   }
 
   document.body.classList.remove("auth-signed-out");
-  $("authStatus").textContent = getDisplayName(user);
+  $("authStatus").textContent = appRuntime.supportsEmailAuth ? getDisplayName(user) : `${providerLabel} 已連線`;
   $("appShell").classList.remove("hidden");
   $("emailAuthForm").classList.add("hidden");
   $("signedInControls").classList.remove("hidden");
+  $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
   $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSignOut);
 }
 
@@ -1669,6 +1670,9 @@ function getDesktopSidebarStructureRenderKey(groups) {
 async function toggleDesktopMode() {
   state.desktopMode = !state.desktopMode;
   localStorage.setItem("financeDesktopMode", String(state.desktopMode));
+  if (state.uid && !appRuntime.supportsEmailAuth) {
+    $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
+  }
   renderDesktopMode();
   renderDesktopLoadingState();
 
