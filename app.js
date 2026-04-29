@@ -450,7 +450,7 @@ async function ensureProtectedItems(accounts, categories) {
 
 async function loadAll() {
   resetSnapshotState();
-  await Promise.all([loadReferenceDataState(), loadSettingsState(), loadHistoryMetadata()]);
+  await Promise.all([loadReferenceDataState(), loadSettingsState(), loadHistoryMetadata(), loadCommonSummaryState()]);
   await loadCurrentViewData();
 }
 
@@ -2542,6 +2542,9 @@ function renderCommonSummaryOptions() {
 }
 
 function loadCommonSummaryStore() {
+  if (typeof dataBackend?.loadCommonSummariesState === "function") {
+    return cloneCommonSummaryStore(seededCommonSummaries);
+  }
   const raw = readJsonStorage(COMMON_SUMMARY_STORAGE_KEY, {});
   if (Array.isArray(raw)) {
     return { global: raw };
@@ -2556,19 +2559,31 @@ function cloneCommonSummaryStore(store) {
   return store && typeof store === "object" ? JSON.parse(JSON.stringify(store)) : {};
 }
 
+async function loadCommonSummaryState() {
+  if (typeof dataBackend?.loadCommonSummariesState !== "function") {
+    state.commonSummaries = loadCommonSummaryStore();
+    return;
+  }
+  state.commonSummaries = cloneCommonSummaryStore(await dataBackend.loadCommonSummariesState());
+}
+
 function getCommonSummaries(scopeKey) {
   const scoped = state.commonSummaries[scopeKey] || [];
   const fallback = scopeKey === "global" ? [] : state.commonSummaries.global || [];
   return (scoped.length ? scoped : fallback).filter(Boolean).slice(0, 6);
 }
 
-function saveCommonSummaries(scopeKey, summaries) {
+async function saveCommonSummaries(scopeKey, summaries) {
   state.commonSummaries[scopeKey] = [...new Set(summaries.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 6);
-  localStorage.setItem(COMMON_SUMMARY_STORAGE_KEY, JSON.stringify(state.commonSummaries));
+  if (typeof dataBackend?.replaceCommonSummariesState === "function") {
+    await dataBackend.replaceCommonSummariesState(state.commonSummaries);
+  } else {
+    localStorage.setItem(COMMON_SUMMARY_STORAGE_KEY, JSON.stringify(state.commonSummaries));
+  }
   renderCommonSummaryOptions();
 }
 
-function saveSummaryFromInput(inputId, formKind) {
+async function saveSummaryFromInput(inputId, formKind) {
   const value = $(inputId).value.trim();
   const scopeKey = getSummaryScopeKey(formKind);
   if (!value || !scopeKey) {
@@ -2578,7 +2593,7 @@ function saveSummaryFromInput(inputId, formKind) {
   if (!window.confirm(`確定將「${value}」存為「${itemName}」的常用摘要嗎？`)) {
     return;
   }
-  saveCommonSummaries(scopeKey, [value, ...getCommonSummaries(scopeKey).filter((summary) => summary !== value)]);
+  await saveCommonSummaries(scopeKey, [value, ...getCommonSummaries(scopeKey).filter((summary) => summary !== value)]);
 }
 
 function bindSummaryInput(inputId, menuId, formKind) {
@@ -2644,8 +2659,14 @@ function renderCommonSummaryFields() {
 
 function saveCommonSummaryForm(event) {
   event.preventDefault();
-  saveCommonSummaries(state.commonSummaryEditingScopeKey || getActiveSummaryScopeKey(), Array.from(new FormData(event.target).getAll("summary")));
-  closeCommonSummaryModal();
+  Promise.resolve(
+    saveCommonSummaries(
+      state.commonSummaryEditingScopeKey || getActiveSummaryScopeKey(),
+      Array.from(new FormData(event.target).getAll("summary"))
+    )
+  ).then(() => {
+    closeCommonSummaryModal();
+  });
 }
 
 function updateSaveSummaryButtons() {

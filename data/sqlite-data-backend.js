@@ -121,6 +121,9 @@ function createSQLiteHttpBackend(options = {}) {
     async loadStoredSettingsState() {
       return requestApiJson(baseUrl, "settings/state");
     },
+    async loadCommonSummariesState() {
+      return requestApiJson(baseUrl, "common-summaries");
+    },
     async loadTransactionsByDateRange(startDate = "", endDate = "") {
       return requestApiJson(baseUrl, "transactions", {
         params: { startDate, endDate }
@@ -135,6 +138,12 @@ function createSQLiteHttpBackend(options = {}) {
     async saveSettingsPatch(payload) {
       await requestApiJson(baseUrl, "settings/patch", {
         method: "PATCH",
+        body: payload
+      });
+    },
+    async replaceCommonSummariesState(payload) {
+      await requestApiJson(baseUrl, "common-summaries", {
+        method: "POST",
         body: payload
       });
     },
@@ -182,13 +191,14 @@ export function createSQLiteDataBackend(options = {}) {
   const active = shouldUsePersisted ? persisted : normalizedSeed;
   const collections = active.collections;
   let settings = active.settings;
+  let commonSummaries = active.commonSummaries;
   let nextId = active.nextId;
 
   function persist() {
     writeLocalSnapshot(storageKey, {
       settings,
       collections,
-      commonSummaries: normalizedSeed.commonSummaries,
+      commonSummaries,
       nextId
     });
   }
@@ -274,6 +284,9 @@ export function createSQLiteDataBackend(options = {}) {
     async loadStoredSettingsState() {
       return settings ? cloneValue(settings) : null;
     },
+    async loadCommonSummariesState() {
+      return commonSummaries ? cloneValue(commonSummaries) : {};
+    },
     async loadTransactionsByDateRange(startDate = "", endDate = "") {
       return requireCollection("transactions")
         .filter((item) => (!startDate || item.date >= startDate) && (!endDate || item.date <= endDate))
@@ -292,6 +305,10 @@ export function createSQLiteDataBackend(options = {}) {
         ...(settings || {}),
         ...cloneValue(payload)
       };
+      persist();
+    },
+    async replaceCommonSummariesState(payload) {
+      commonSummaries = payload && typeof payload === "object" ? cloneValue(payload) : {};
       persist();
     },
     async createUserCollectionDocument(collectionName, payload) {

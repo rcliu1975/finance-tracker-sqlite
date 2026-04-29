@@ -230,6 +230,44 @@ def load_history_metadata(conn, user_id: str):
     }
 
 
+def load_common_summaries(conn, user_id: str):
+    rows = conn.execute(
+        """
+        SELECT scope_key, summary
+        FROM common_summaries
+        WHERE user_id = ?
+        ORDER BY scope_key ASC, order_index ASC
+        """,
+        (user_id,),
+    ).fetchall()
+    grouped: dict[str, list[str]] = {}
+    for row in rows:
+        scope_key = str(row["scope_key"] or "")
+        grouped.setdefault(scope_key, []).append(str(row["summary"] or ""))
+    return grouped
+
+
+def replace_common_summaries(conn, user_id: str, payload: dict):
+    conn.execute("DELETE FROM common_summaries WHERE user_id = ?", (user_id,))
+    rows = []
+    for scope_key, summaries in (payload or {}).items():
+        unique = []
+        for summary in summaries if isinstance(summaries, list) else []:
+            text = str(summary or "").strip()
+            if text and text not in unique:
+                unique.append(text)
+        for index, summary in enumerate(unique[:6]):
+            rows.append((user_id, str(scope_key or ""), index, summary))
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO common_summaries (user_id, scope_key, order_index, summary)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
 def ensure_settings_row(conn, user_id: str):
     row = conn.execute("SELECT user_id FROM user_settings WHERE user_id = ?", (user_id,)).fetchone()
     if not row:
@@ -496,6 +534,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "categories": load_categories(conn, user_id),
                     "recurring": load_recurring(conn, user_id),
                 }
+            if path == "/common-summaries" and method == "GET":
+                return load_common_summaries(conn, user_id)
+            if path == "/common-summaries" and method == "POST":
+                replace_common_summaries(conn, user_id, payload or {})
+                conn.commit()
+                return {"ok": True}
             if path == "/history-metadata" and method == "GET":
                 return load_history_metadata(conn, user_id)
             if path == "/transactions" and method == "GET":
