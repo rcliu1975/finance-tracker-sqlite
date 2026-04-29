@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,6 +10,20 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from sqlite_migration_lib import connect_sqlite, next_id
+
+
+def load_script_module(script_name: str, module_name: str):
+    script_dir = Path(__file__).resolve().parent
+    script_path = script_dir / script_name
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"無法載入腳本模組：{script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SNAPSHOTS = load_script_module("rebuild-sqlite-snapshots.py", "rebuild_sqlite_snapshots_bridge")
 
 
 def parse_args() -> argparse.Namespace:
@@ -266,6 +281,49 @@ def replace_common_summaries(conn, user_id: str, payload: dict):
             """,
             rows,
         )
+
+
+def rebuild_monthly_snapshots(conn, user_id: str, from_month: str = ""):
+    settings = conn.execute(
+        "SELECT snapshot_dirty_from_month FROM user_settings WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    accounts, categories = SNAPSHOTS.load_items(conn, user_id)
+    accounts_by_id = {item["id"]: item for item in accounts}
+    categories_by_id = {item["id"]: item for item in categories}
+    transactions = SNAPSHOTS.load_transactions(conn, user_id, accounts_by_id, categories_by_id)
+    dirty_from_month = str(settings["snapshot_dirty_from_month"] or "") if settings else ""
+    summary = SNAPSHOTS.build_snapshots(accounts, transactions, from_month, dirty_from_month)
+    conn.execute("DELETE FROM monthly_snapshots WHERE user_id = ?", (user_id,))
+    if summary["snapshots"]:
+        SNAPSHOTS.persist_snapshots(conn, user_id, summary["snapshots"])
+    else:
+        conn.execute(
+            """
+            UPDATE user_settings
+            SET snapshot_dirty_from_month = '', updated_at = unixepoch()
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+    return summary
+
+
+def sqlite_bridge_status(conn, user_id: str, db_path: Path):
+    return {
+        "dbPath": str(db_path),
+        "userId": user_id,
+        "settings": load_settings(conn, user_id),
+        "history": load_history_metadata(conn, user_id),
+        "counts": {
+            "accounts": len(load_accounts(conn, user_id)),
+            "categories": len(load_categories(conn, user_id)),
+            "recurring": len(load_recurring(conn, user_id)),
+            "transactions": conn.execute("SELECT COUNT(*) FROM transactions WHERE user_id = ?", (user_id,)).fetchone()[0],
+            "monthlySnapshots": conn.execute("SELECT COUNT(*) FROM monthly_snapshots WHERE user_id = ?", (user_id,)).fetchone()[0],
+            "commonSummaries": conn.execute("SELECT COUNT(*) FROM common_summaries WHERE user_id = ?", (user_id,)).fetchone()[0],
+        },
+    }
 
 
 def ensure_settings_row(conn, user_id: str):
@@ -542,6 +600,18 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return {"ok": True}
             if path == "/history-metadata" and method == "GET":
                 return load_history_metadata(conn, user_id)
+            if path == "/admin/status" and method == "GET":
+                return sqlite_bridge_status(conn, user_id, self.server.db_path)
+            if path == "/admin/rebuild-snapshots" and method == "POST":
+                summary = rebuild_monthly_snapshots(conn, user_id, str((payload or {}).get("fromMonth", "") or ""))
+                conn.commit()
+                return {
+                    "ok": True,
+                    "fromMonth": summary["from_month"],
+                    "toMonth": summary["to_month"],
+                    "snapshotCount": len(summary["snapshots"]),
+                    "transactionCount": summary["transaction_count"],
+                }
             if path == "/transactions" and method == "GET":
                 return load_transactions(
                     conn,

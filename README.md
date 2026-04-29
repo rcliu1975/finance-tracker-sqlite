@@ -20,6 +20,7 @@
 - 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為接上 SQLite backend 預留穩定介面
 - 前端 runtime / auth 已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
 - 已加入 `APP_STORAGE_BACKEND=sqlite` provider 切換；目前可透過 `APP_SQLITE_API_BASE_URL` 直接連本機 SQLite bridge，`seed JSON + localStorage` 改為 fallback
+- `commonSummaries` 在 SQLite bridge 模式下也會直接持久化到 SQLite，不再只靠瀏覽器 `localStorage`
 - 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具
 
 ### SQLite 匯入測試
@@ -267,9 +268,25 @@ npm run serve
 這個模式目前特性如下：
 
 - 前端會直接透過 HTTP bridge 讀寫 SQLite `.db`
+- `commonSummaries` 也會直接寫回 SQLite
 - 不走 Firebase Authentication
 - 會以單一本機使用者進入 app
 - 需要 bridge 行程持續運作
+
+bridge 額外提供的管理 API：
+
+- `GET /health`
+- `GET /admin/status`
+- `POST /admin/rebuild-snapshots`
+
+範例：
+
+```bash
+curl http://127.0.0.1:8765/admin/status
+curl -X POST http://127.0.0.1:8765/admin/rebuild-snapshots \
+  -H 'Content-Type: application/json' \
+  -d '{"fromMonth":"2024-01"}'
+```
 
 #### SQLite seed fallback 模式
 
