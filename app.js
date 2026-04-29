@@ -1,30 +1,30 @@
 import { loadAppRuntime } from "./data/app-runtime.js";
 import { createAppDataBackend } from "./data/app-data-backend.js";
 
-let authInitialized = false;
+let runtimeSessionObserved = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
 
 window.addEventListener("error", (event) => {
   const message = event.error?.message || event.message || "未知錯誤";
-  const status = document.getElementById("authStatus");
-  const authError = document.getElementById("authError");
+  const status = document.getElementById("sessionStatus");
+  const sessionError = document.getElementById("sessionError");
   if (status) {
     status.textContent = "前端初始化失敗";
   }
-  if (authError) {
-    authError.textContent = `初始化錯誤：${message}`;
+  if (sessionError) {
+    sessionError.textContent = `初始化錯誤：${message}`;
   }
 });
 
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason?.message || event.reason?.code || String(event.reason || "未知錯誤");
-  const status = document.getElementById("authStatus");
-  const authError = document.getElementById("authError");
+  const status = document.getElementById("sessionStatus");
+  const sessionError = document.getElementById("sessionError");
   if (status) {
     status.textContent = "前端初始化失敗";
   }
-  if (authError) {
-    authError.textContent = `初始化錯誤：${reason}`;
+  if (sessionError) {
+    sessionError.textContent = `初始化錯誤：${reason}`;
   }
 });
 
@@ -54,15 +54,15 @@ const seededCommonSummaries =
     : {};
 
 if (hasBackendConfig) {
-  document.getElementById("authStatus").textContent = waitingProviderStatus;
+  document.getElementById("sessionStatus").textContent = waitingProviderStatus;
 }
 
 if (runtimeBootstrapError && bootstrapErrorMessage) {
-  document.getElementById("authError").textContent = bootstrapErrorMessage;
+  document.getElementById("sessionError").textContent = bootstrapErrorMessage;
 }
 
 if (modeNotice) {
-  document.getElementById("authError").textContent = [document.getElementById("authError").textContent, modeNotice]
+  document.getElementById("sessionError").textContent = [document.getElementById("sessionError").textContent, modeNotice]
     .filter(Boolean)
     .join(" ");
 }
@@ -276,7 +276,7 @@ if (hasBackendConfig) {
   bindEvents();
 
   appRuntime.observeAuthState(async (user) => {
-    authInitialized = true;
+    runtimeSessionObserved = true;
     if (!user) {
       state.uid = null;
       resetStateData();
@@ -292,9 +292,9 @@ if (hasBackendConfig) {
 }
 
 window.setTimeout(() => {
-  if (!authInitialized && document.getElementById("authStatus")?.textContent === waitingProviderStatus) {
-    document.getElementById("authStatus").textContent = `${providerLabel} 初始化逾時`;
-    document.getElementById("authError").textContent = `前端沒有成功完成 ${providerLabel} 初始化，請重新整理頁面；若仍發生，請回報這一行訊息。`;
+  if (!runtimeSessionObserved && document.getElementById("sessionStatus")?.textContent === waitingProviderStatus) {
+    document.getElementById("sessionStatus").textContent = `${providerLabel} 初始化逾時`;
+    document.getElementById("sessionError").textContent = `前端沒有成功完成 ${providerLabel} 初始化，請重新整理頁面；若仍發生，請回報這一行訊息。`;
   }
 }, 5000);
 
@@ -760,7 +760,7 @@ function bindEvents() {
   $("sqliteBridgeRefreshBtn")?.addEventListener("click", () => refreshSQLiteBridgeAdminStatus());
   $("sqliteRebuildSnapshotsBtn")?.addEventListener("click", rebuildSQLiteBridgeSnapshots);
 
-  $("emailAuthForm").addEventListener("submit", handleEmailAuth);
+  $("emailSessionForm").addEventListener("submit", handleEmailAuth);
   $("desktopViewBtn").addEventListener("click", toggleDesktopMode);
   $("desktopNetWorthCard").addEventListener("click", () => {
     if (!state.desktopMode) {
@@ -954,14 +954,14 @@ function bindEvents() {
   $("desktopItemForm").addEventListener("submit", saveDesktopSettingsItem);
   $("desktopDeleteBtn").addEventListener("click", deleteSelectedDesktopTransaction);
   $("signOutBtn").addEventListener("click", async () => {
-    $("authError").textContent = "";
+    $("sessionError").textContent = "";
     await appRuntime.signOut();
   });
 }
 
 async function handleEmailAuth(event) {
   event.preventDefault();
-  $("authError").textContent = "";
+  $("sessionError").textContent = "";
   const form = event.currentTarget;
 
   const formData = new FormData(form);
@@ -970,7 +970,7 @@ async function handleEmailAuth(event) {
   const password = String(formData.get("password") || "");
 
   try {
-    $("authStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
+    $("sessionStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
 
     if (action === "register") {
       await appRuntime.registerWithEmail(email, password);
@@ -980,8 +980,8 @@ async function handleEmailAuth(event) {
 
     form.reset();
   } catch (error) {
-    $("authStatus").textContent = "登入失敗";
-    $("authError").textContent = formatAuthError(action, error);
+    $("sessionStatus").textContent = "登入失敗";
+    $("sessionError").textContent = formatAuthError(action, error);
   }
 }
 
@@ -1425,23 +1425,23 @@ function closeDesktopItemModal() {
 
 function renderAuthState(user) {
   if (!user) {
-    document.body.classList.add("auth-signed-out");
+    document.body.classList.add("session-signed-out");
     $("appShell").classList.add("hidden");
-    $("emailAuthForm").classList.toggle("hidden", !appRuntime.supportsEmailAuth);
-    $("signedInControls").classList.add("hidden");
-    if (!$("authError").textContent) {
-      $("authStatus").textContent = appRuntime.supportsEmailAuth
+    $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsEmailAuth);
+    $("sessionControls").classList.add("hidden");
+    if (!$("sessionError").textContent) {
+      $("sessionStatus").textContent = appRuntime.supportsEmailAuth
         ? "請輸入 Email 與密碼登入或註冊"
         : `等待 ${providerLabel} 後端就緒`;
     }
     return;
   }
 
-  document.body.classList.remove("auth-signed-out");
-  $("authStatus").textContent = appRuntime.supportsEmailAuth ? getDisplayName(user) : `${providerLabel} 已連線`;
+  document.body.classList.remove("session-signed-out");
+  $("sessionStatus").textContent = appRuntime.supportsEmailAuth ? getDisplayName(user) : `${providerLabel} 已連線`;
   $("appShell").classList.remove("hidden");
-  $("emailAuthForm").classList.add("hidden");
-  $("signedInControls").classList.remove("hidden");
+  $("emailSessionForm").classList.add("hidden");
+  $("sessionControls").classList.remove("hidden");
   $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
   $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSignOut);
 }

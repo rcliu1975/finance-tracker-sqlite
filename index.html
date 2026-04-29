@@ -13,21 +13,21 @@
       <div>
         <p class="eyebrow">MoneyBook</p>
       </div>
-      <div class="auth-panel">
-        <form id="emailAuthForm" class="email-auth-form">
+      <div class="session-panel">
+        <form id="emailSessionForm" class="email-session-form">
           <input name="email" type="email" autocomplete="email" placeholder="Email" required />
           <input name="password" type="password" autocomplete="current-password" placeholder="Password" required />
-          <div class="auth-actions">
-            <button name="action" value="login" type="submit" class="auth-btn">登入</button>
-            <button name="action" value="register" type="submit" class="auth-btn auth-btn-secondary">註冊</button>
+          <div class="session-actions">
+            <button name="action" value="login" type="submit" class="session-btn">登入</button>
+            <button name="action" value="register" type="submit" class="session-btn session-btn-secondary">註冊</button>
           </div>
         </form>
-        <div id="authStatus" class="status-pill auth-feedback">等待資料後端連線</div>
-        <div id="signedInControls" class="signed-in-controls hidden">
-          <button id="desktopViewBtn" class="auth-btn auth-btn-secondary" type="button">桌面版</button>
-          <button id="signOutBtn" class="auth-btn" type="button">登出</button>
+        <div id="sessionStatus" class="status-pill session-feedback">等待資料後端連線</div>
+        <div id="sessionControls" class="session-controls hidden">
+          <button id="desktopViewBtn" class="session-btn session-btn-secondary" type="button">桌面版</button>
+          <button id="signOutBtn" class="session-btn" type="button">登出</button>
         </div>
-        <p id="authError" class="auth-error"></p>
+        <p id="sessionError" class="session-error"></p>
       </div>
     </header>
 
