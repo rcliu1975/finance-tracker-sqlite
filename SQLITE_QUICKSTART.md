@@ -28,6 +28,22 @@ npm run sqlite:frontend -- \
 2. 啟動 SQLite HTTP bridge
 3. 啟動前端靜態 server
 
+如果你要讓外網 UI 用 Email / password 登入：
+
+```bash
+npm run sqlite:frontend -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --user-id local-user \
+  --bridge-host 0.0.0.0 \
+  --serve-host 0.0.0.0 \
+  --open-host your-public-host \
+  --login-email you@example.com \
+  --login-password 'strong-password'
+```
+
+這時前端會顯示登入表單，bridge API 也會要求 Bearer session token。
+這條模式目前是既有帳號登入，不提供前端自助註冊。
+
 ## 3. 分開控制 bridge 與前端
 
 ```bash

@@ -20,7 +20,8 @@ export async function initializeAppSession() {
     initialData,
     storageKey: localStorageKey,
     apiBaseUrl: runtime.sqliteApiBaseUrl,
-    providerKey: runtime.providerKey
+    providerKey: runtime.providerKey,
+    getAccessToken: () => (typeof runtime.getAccessToken === "function" ? runtime.getAccessToken() : "")
   });
   return {
     runtime,
@@ -54,4 +55,3 @@ export function applySessionBootstrapState({
     setError((currentError) => [currentError, modeNotice].filter(Boolean).join(" "));
   }
 }
-

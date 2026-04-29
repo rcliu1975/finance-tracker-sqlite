@@ -23,6 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--serve-host", default="0.0.0.0", help="Frontend HTTP bind host.")
     parser.add_argument("--serve-port", type=int, default=5173, help="Frontend HTTP bind port.")
     parser.add_argument("--open-host", default="127.0.0.1", help="URL host printed for browser access.")
+    parser.add_argument("--login-email", default="", help="Enable external login with this email.")
+    parser.add_argument("--login-password", default="", help="Enable external login with this password.")
     return parser.parse_args()
 
 
@@ -126,6 +128,10 @@ def main() -> int:
                 args.bridge_host,
                 "--port",
                 str(args.bridge_port),
+                "--login-email",
+                args.login_email,
+                "--login-password",
+                args.login_password,
             ],
             cwd=repo_root,
         )
@@ -147,6 +153,8 @@ def main() -> int:
         bridge_url = f"http://{args.open_host}:{args.bridge_port}"
         print(f"SQLite bridge: {bridge_url}", flush=True)
         print(f"Frontend: {frontend_url}", flush=True)
+        if args.login_email and args.login_password:
+            print(f"登入帳號: {args.login_email}", flush=True)
         if args.serve_host in {"0.0.0.0", "::"} or args.bridge_host in {"0.0.0.0", "::"}:
             local_ips = detect_local_ipv4_addresses()
             if local_ips:

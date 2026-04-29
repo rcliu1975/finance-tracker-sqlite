@@ -80,10 +80,18 @@ function buildApiUrl(baseUrl, path, params = {}) {
   return url;
 }
 
-async function requestApiJson(baseUrl, path, { method = "GET", params = {}, body } = {}) {
+async function requestApiJson(baseUrl, path, { method = "GET", params = {}, body, getAccessToken } = {}) {
+  const accessToken = typeof getAccessToken === "function" ? String(getAccessToken() || "").trim() : "";
+  const headers = {};
+  if (body) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
   const response = await fetch(buildApiUrl(baseUrl, path, params), {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined
   });
   const payload = await response.json().catch(() => ({}));
@@ -95,94 +103,105 @@ async function requestApiJson(baseUrl, path, { method = "GET", params = {}, body
 
 function createSQLiteHttpBackend(options = {}) {
   const baseUrl = String(options.apiBaseUrl || "").trim();
+  const getAccessToken = typeof options.getAccessToken === "function" ? options.getAccessToken : () => "";
   if (!baseUrl) {
     throw new Error("缺少 SQLite API base URL。");
   }
 
   return {
     async loadCollectionItems(name) {
-      return requestApiJson(baseUrl, `collection/${name}`);
+      return requestApiJson(baseUrl, `collection/${name}`, { getAccessToken });
     },
     async loadHistoryMetadata() {
-      return requestApiJson(baseUrl, "history-metadata");
+      return requestApiJson(baseUrl, "history-metadata", { getAccessToken });
     },
     async loadLatestSnapshotBeforeMonth(month) {
-      return requestApiJson(baseUrl, `snapshots/latest-before/${month}`);
+      return requestApiJson(baseUrl, `snapshots/latest-before/${month}`, { getAccessToken });
     },
     async loadReferenceData() {
-      return requestApiJson(baseUrl, "reference-data");
+      return requestApiJson(baseUrl, "reference-data", { getAccessToken });
     },
     async loadSettingsState() {
-      return requestApiJson(baseUrl, "settings/state");
+      return requestApiJson(baseUrl, "settings/state", { getAccessToken });
     },
     async loadSnapshotByMonth(month) {
-      return requestApiJson(baseUrl, `snapshots/${month}`);
+      return requestApiJson(baseUrl, `snapshots/${month}`, { getAccessToken });
     },
     async loadStoredSettingsState() {
-      return requestApiJson(baseUrl, "settings/state");
+      return requestApiJson(baseUrl, "settings/state", { getAccessToken });
     },
     async loadCommonSummariesState() {
-      return requestApiJson(baseUrl, "common-summaries");
+      return requestApiJson(baseUrl, "common-summaries", { getAccessToken });
     },
     async loadAdminStatus() {
-      return requestApiJson(baseUrl, "admin/status");
+      return requestApiJson(baseUrl, "admin/status", { getAccessToken });
     },
     async loadTransactionsByDateRange(startDate = "", endDate = "") {
       return requestApiJson(baseUrl, "transactions", {
-        params: { startDate, endDate }
+        params: { startDate, endDate },
+        getAccessToken
       });
     },
     async replaceSettingsState(payload) {
       await requestApiJson(baseUrl, "settings/replace", {
         method: "POST",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async saveSettingsPatch(payload) {
       await requestApiJson(baseUrl, "settings/patch", {
         method: "PATCH",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async replaceCommonSummariesState(payload) {
       await requestApiJson(baseUrl, "common-summaries", {
         method: "POST",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async rebuildSnapshots(payload = {}) {
       return requestApiJson(baseUrl, "admin/rebuild-snapshots", {
         method: "POST",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async createUserCollectionDocument(collectionName, payload) {
       return requestApiJson(baseUrl, `collection/${collectionName}`, {
         method: "POST",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async saveUserCollectionDocument(collectionName, id, payload) {
       await requestApiJson(baseUrl, `collection/${collectionName}/${id}`, {
         method: "PUT",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async updateUserCollectionDocument(collectionName, id, payload) {
       await requestApiJson(baseUrl, `collection/${collectionName}/${id}`, {
         method: "PATCH",
-        body: payload
+        body: payload,
+        getAccessToken
       });
     },
     async deleteUserCollectionDocument(collectionName, id) {
       await requestApiJson(baseUrl, `collection/${collectionName}/${id}`, {
-        method: "DELETE"
+        method: "DELETE",
+        getAccessToken
       });
     },
     async batchUpdateUserCollectionOrders(items) {
       await requestApiJson(baseUrl, "batch-update-orders", {
         method: "POST",
-        body: { items }
+        body: { items },
+        getAccessToken
       });
     }
   };

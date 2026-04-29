@@ -9,6 +9,9 @@ SQLite-only 啟動可直接看：
 
 - [`SQLITE_QUICKSTART.md`](/home/roger/WorkSpace/finance-tracker-sqlite/SQLITE_QUICKSTART.md)
 
+如果你要讓 SQLite UI 從外網登入，也看這份 quickstart。
+目前 SQLite bridge 外網模式提供的是既有帳號登入，不是前端自助註冊。
+
 ## SQLite 遷移現況
 
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import secrets
 import importlib.util
 import json
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +34,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--user-id", default="local-user", help="Target user id.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Default: 127.0.0.1")
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765")
+    parser.add_argument("--login-email", default="", help="Enable UI login with this email.")
+    parser.add_argument("--login-password", default="", help="Enable UI login with this password.")
+    parser.add_argument("--session-ttl-seconds", type=int, default=43200, help="Bridge session token lifetime.")
     return parser.parse_args()
 
 
@@ -326,6 +331,16 @@ def sqlite_bridge_status(conn, user_id: str, db_path: Path):
     }
 
 
+def bridge_user_payload(email: str, user_id: str) -> dict:
+    email_text = str(email or "").strip()
+    display_name = email_text.split("@")[0] if "@" in email_text else email_text or user_id
+    return {
+        "uid": user_id,
+        "email": email_text,
+        "displayName": display_name,
+    }
+
+
 def ensure_settings_row(conn, user_id: str):
     row = conn.execute("SELECT user_id FROM user_settings WHERE user_id = ?", (user_id,)).fetchone()
     if not row:
@@ -531,6 +546,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self.write_json(HTTPStatus.OK, response)
         except KeyError as exc:
             self.write_json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
+        except PermissionError as exc:
+            self.write_json(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
         except ValueError as exc:
             self.write_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except Exception as exc:
@@ -539,9 +556,46 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def dispatch(self, method: str, path: str, query: dict, payload: dict | None):
         if path == "/health":
             return {"status": "ok"}
+        if path == "/session/config" and method == "GET":
+            return {
+                "supportsCredentialSession": bool(self.server.login_email and self.server.login_password),
+                "providerLabel": "SQLite",
+            }
+        if path == "/session/login" and method == "POST":
+            if not (self.server.login_email and self.server.login_password):
+                raise ValueError("目前 bridge 沒有啟用登入模式。")
+            email = str((payload or {}).get("email", "") or "").strip()
+            password = str((payload or {}).get("password", "") or "")
+            if email != self.server.login_email or password != self.server.login_password:
+                raise PermissionError("Email 或密碼不正確。")
+            token = secrets.token_urlsafe(32)
+            expires_at = int(time.time()) + int(self.server.session_ttl_seconds)
+            user = bridge_user_payload(self.server.login_email, self.server.user_id)
+            self.server.sessions[token] = {
+                "user": user,
+                "expiresAt": expires_at,
+            }
+            return {
+                "token": token,
+                "expiresAt": expires_at,
+                "user": user,
+            }
+        if path == "/session/logout" and method == "POST":
+            token = self.read_bearer_token()
+            if token:
+                self.server.sessions.pop(token, None)
+            return {"ok": True}
+        if path == "/session/me" and method == "GET":
+            session = self.require_session()
+            return {
+                "user": session["user"],
+                "expiresAt": session["expiresAt"],
+            }
 
         conn = connect_sqlite(self.server.db_path)
         try:
+            if self.server.login_email and self.server.login_password:
+                self.require_session()
             user_id = self.server.user_id
             if path == "/settings/state" and method == "GET":
                 return load_settings(conn, user_id)
@@ -700,6 +754,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def read_bearer_token(self) -> str:
+        auth_header = str(self.headers.get("Authorization", "") or "").strip()
+        if not auth_header.lower().startswith("bearer "):
+            return ""
+        return auth_header[7:].strip()
+
+    def require_session(self) -> dict:
+        token = self.read_bearer_token()
+        now = int(time.time())
+        expired_tokens = [key for key, value in self.server.sessions.items() if int(value.get("expiresAt", 0) or 0) <= now]
+        for expired_token in expired_tokens:
+            self.server.sessions.pop(expired_token, None)
+        session = self.server.sessions.get(token)
+        if not session:
+            raise PermissionError("需要先登入。")
+        return session
+
     def write_json(self, status: HTTPStatus, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -711,7 +782,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 
     def log_message(self, format: str, *args):
@@ -727,7 +798,13 @@ def main() -> int:
     server = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
     server.db_path = db_path
     server.user_id = args.user_id
+    server.login_email = str(args.login_email or "").strip()
+    server.login_password = str(args.login_password or "")
+    server.session_ttl_seconds = int(args.session_ttl_seconds or 43200)
+    server.sessions = {}
     print(f"SQLite bridge listening on http://{args.host}:{args.port} user_id={args.user_id} db={db_path}")
+    if server.login_email and server.login_password:
+        print(f"SQLite bridge login enabled for {server.login_email}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

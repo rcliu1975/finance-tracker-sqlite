@@ -961,6 +961,11 @@ async function handleEmailAuth(event) {
   const action = event.submitter?.value || "login";
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "");
+  if (action === "register" && !appRuntime.supportsCredentialRegistration) {
+    $("sessionStatus").textContent = "註冊未啟用";
+    $("sessionError").textContent = "目前這個 SQLite bridge 只開放既有帳號登入。";
+    return;
+  }
 
   try {
     $("sessionStatus").textContent = action === "register" ? "建立帳號中..." : "登入中...";
@@ -1423,9 +1428,13 @@ function renderSessionState(user) {
     $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsCredentialSession);
     $("sessionControls").classList.add("hidden");
     if (!$("sessionError").textContent) {
-      $("sessionStatus").textContent = appRuntime.supportsCredentialSession
-        ? "請輸入 Email 與密碼登入或註冊"
-        : `等待 ${providerLabel} 後端就緒`;
+      if (appRuntime.supportsCredentialSession) {
+        $("sessionStatus").textContent = appRuntime.supportsCredentialRegistration
+          ? "請輸入 Email 與密碼登入或註冊"
+          : "請輸入 Email 與密碼登入";
+      } else {
+        $("sessionStatus").textContent = `等待 ${providerLabel} 後端就緒`;
+      }
     }
     return;
   }
@@ -1437,6 +1446,14 @@ function renderSessionState(user) {
   $("sessionControls").classList.remove("hidden");
   $("desktopViewBtn").textContent = state.desktopMode ? "手機版" : "桌面版";
   $("signOutBtn").classList.toggle("hidden", !appRuntime.supportsSessionSignOut);
+}
+
+function renderCredentialFormOptions() {
+  const registerButton = $("sessionRegisterBtn");
+  if (!registerButton) {
+    return;
+  }
+  registerButton.classList.toggle("hidden", !appRuntime.supportsCredentialRegistration);
 }
 
 function getDisplayName(user) {
@@ -1530,6 +1547,7 @@ async function applyRecurringIfNeeded() {
 }
 
 function renderAll() {
+  renderCredentialFormOptions();
   renderDesktopMode();
   renderOptions();
   renderOverview();
