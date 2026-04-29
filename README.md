@@ -10,6 +10,8 @@
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
 - 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
 - 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
+- 已有 SQLite 項目 CSV 匯入腳本：`scripts/import-items-to-sqlite.py`
+- 已有 SQLite 項目 CSV 匯出腳本：`scripts/export-items-from-sqlite.py`
 - 已有 SQLite -> 前端 seed JSON 匯出腳本：`scripts/export-sqlite-to-json.py`
 - 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
@@ -66,6 +68,55 @@ npm run sqlite:export-json -- \
 
 不要同時對同一顆 `.db` 平行執行 `--replace` 匯入、快照重建與驗證。
 
+## Command line 項目匯入 / 匯出
+
+前端已移除線上 `項目匯入` / `項目匯出`，改成只保留 command line 流程。
+
+### 匯出 SQLite 項目 CSV
+
+```bash
+npm run sqlite:export-items -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --output ~/items-export.csv
+```
+
+說明：
+
+- `--db`：來源 SQLite 資料庫
+- `--output`：輸出的 CSV 檔案路徑
+- `--user-id`：可選；未指定時取資料庫內第一個 user
+
+匯出的欄位格式：
+
+- `類別`
+- `項目名稱`
+- `期初餘額`
+- `次序`
+- `保護項目`
+- `ID`
+- `常用摘要`
+
+### 匯入 SQLite 項目 CSV
+
+```bash
+npm run sqlite:import-items -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --items-csv ~/items-export.csv
+```
+
+說明：
+
+- `--db`：目標 SQLite 資料庫
+- `--items-csv`：要匯入的 CSV 檔案
+- `--user-id`：可選；未指定時取資料庫內第一個 user
+
+行為：
+
+- 同名同類型項目會更新
+- 新項目會新增到資料庫
+- 類別項目的 `常用摘要` 會同步更新到 `common_summaries`
+- 若有帳戶期初餘額變動，會更新 `user_settings.snapshot_dirty_from_month`
+
 ## 目前功能
 
 - 記錄收入、支出與轉帳記錄
@@ -74,7 +125,6 @@ npm run sqlite:export-json -- \
 - 顯示總資產、本月收支與預算使用率
 - 產生最近記錄列表、分類圓餅圖與近六個月收支圖
 - 支援固定支出自動帶入當月記錄
-- 支援匯出記錄資料為 CSV
 - 支援桌面版模式：
   - 在寬度 `>= 1024px` 時顯示 `桌面版` 按鈕
   - 切換後會把 topbar 下方改成左側摘要欄 + 右側工作區的桌面版架構
@@ -96,6 +146,8 @@ npm run sqlite:export-json -- \
 - `scripts/generate-firebase-config.js`: 依 `.env` 產生 `firebase-config.js`
 - `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
 - `scripts/import-csv-to-sqlite.py`: 把既有項目 / 交易 CSV 直接匯入 SQLite 資料庫
+- `scripts/import-items-to-sqlite.py`: 把項目 CSV 匯入既有 SQLite 資料庫
+- `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV
 - `scripts/rebuild-sqlite-snapshots.py`: 依 SQLite 交易資料重建 `monthly_snapshots`
 - `scripts/verify-sqlite-db.py`: 驗證產生出的 SQLite 資料庫筆數與外鍵狀態
 - `scripts/rebuild-monthly-snapshots.js`: 重建 `monthlySnapshots`，支援 dirty month、Emulator 與正式 Firestore
@@ -108,7 +160,7 @@ npm run sqlite:export-json -- \
   - 右側改成 design repo 風格的工作區，顯示所選年月的記錄資料
   - `新增記錄` 會使用桌面版專用小視窗，不影響行動版新增頁
   - `項目設定` 會使用桌面版專用小視窗，不影響行動版設定頁
-  - `資料匯出`、`修改記錄` 可直接沿用現有流程
+  - 線上匯入 / 匯出入口已移除，改走 command line 工具
 
 ## 介面樣式分工
 
@@ -292,7 +344,7 @@ npm run cleanup:orphan-users:apply -- --confirm-project <projectId>
 
 ## Command line 匯入記錄
 
-大量資料匯入時，建議直接用 command line。這支工具和前端匯入共用同一套資料語意：
+大量資料匯入時，建議直接用 command line。這支工具使用和既有資料模型一致的匯入語意：
 
 - 支援 `,`、`;`、`Tab` 分隔
 - 支援 `YYYY/MM/DD` 自動轉成 `YYYY-MM-DD`
