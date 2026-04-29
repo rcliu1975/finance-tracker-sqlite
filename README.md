@@ -9,6 +9,7 @@
 
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
 - 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
+- 已有 Firestore -> SQLite 直接轉檔腳本：`scripts/export-firestore-to-sqlite.py`
 - 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
 - 已有 SQLite 項目 CSV 匯入腳本：`scripts/import-items-to-sqlite.py`
 - 已有 SQLite 項目 CSV 匯出腳本：`scripts/export-items-from-sqlite.py`
@@ -22,6 +23,35 @@
 - 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具
 
 ### SQLite 匯入測試
+
+如果你要直接把某個 Firebase / Firestore 使用者匯成 SQLite：
+
+```bash
+npm run sqlite:import-firestore -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --uid <uid> \
+  --production \
+  --replace
+```
+
+或用 email 查目標使用者：
+
+```bash
+npm run sqlite:import-firestore -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --email you@example.com \
+  --emulator \
+  --replace
+```
+
+這支工具目前會匯出：
+
+- `accounts`
+- `categories`
+- `transactions`
+- `recurring`
+- `monthlySnapshots`
+- `meta/settings`
 
 如果你已經有既有的項目 / 交易 CSV，可以直接建立一個 SQLite 測試資料庫：
 
@@ -171,6 +201,7 @@ npm run sqlite:export-records -- \
 - `scripts/cleanup-orphan-users.js`: 比對 Firebase Authentication 與 Firestore `users/{uid}`，清理不存在帳號的使用者資料
 - `scripts/generate-firebase-config.js`: 依 `.env` 產生 `firebase-config.js`
 - `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
+- `scripts/export-firestore-to-sqlite.py`: 把單一 Firebase / Firestore 使用者直接轉成 SQLite 資料庫
 - `scripts/import-csv-to-sqlite.py`: 把既有項目 / 交易 CSV 直接匯入 SQLite 資料庫
 - `scripts/import-items-to-sqlite.py`: 把項目 CSV 匯入既有 SQLite 資料庫
 - `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV

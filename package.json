@@ -5,6 +5,7 @@
   "scripts": {
     "config:generate": "node scripts/generate-firebase-config.js",
     "import:records": "node scripts/import-records-cli.js",
+    "sqlite:import-firestore": "python3 scripts/export-firestore-to-sqlite.py",
     "sqlite:import-csv": "python3 scripts/import-csv-to-sqlite.py",
     "sqlite:import-items": "python3 scripts/import-items-to-sqlite.py",
     "sqlite:export-json": "python3 scripts/export-sqlite-to-json.py",
