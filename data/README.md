@@ -28,6 +28,7 @@
 7. backend provider 切換骨架
 8. SQLite seed 載入與前端本地持久化 fallback
 9. SQLite HTTP bridge API 對接
+10. SQLite bridge 管理 API 對接，例如狀態查詢與 snapshot rebuild
 
 下一步應該是繼續把剩餘的特殊流程也收進 repository，例如：
 

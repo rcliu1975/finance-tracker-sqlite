@@ -156,6 +156,12 @@ const state = {
   desktopItemEditing: null,
   commonSummaryEditingScopeKey: "",
   commonSummaries: loadCommonSummaryStore(),
+  sqliteBridgeAdmin: {
+    status: null,
+    loading: false,
+    rebuilding: false,
+    error: ""
+  },
   settings: {
     monthlyBudget: 0,
     recurringAppliedMonth: "",
@@ -213,6 +219,10 @@ function todayKey(date = new Date()) {
 
 function currentMonthKey(date = new Date()) {
   return todayKey(date).slice(0, 7);
+}
+
+function supportsSQLiteBridgeAdmin() {
+  return typeof dataBackend?.loadAdminStatus === "function" && typeof dataBackend?.rebuildSnapshots === "function";
 }
 
 function monthKey(date) {
@@ -304,6 +314,12 @@ function resetStateData() {
     snapshotDirtyFromMonth: "",
     legacyTransactionsCheckedAt: 0
   };
+  state.sqliteBridgeAdmin = {
+    status: null,
+    loading: false,
+    rebuilding: false,
+    error: ""
+  };
   invalidateDerivedDataCache();
 }
 
@@ -356,6 +372,7 @@ async function bootstrap() {
   }
   bindEvents();
   await applyRecurringIfNeeded();
+  await refreshSQLiteBridgeAdminStatus({ silent: true });
   renderAll();
 }
 
@@ -485,6 +502,30 @@ async function loadCurrentViewData({ resetSnapshots = false } = {}) {
     resetSnapshotState();
   }
   await refreshTransactionsForCurrentView();
+}
+
+async function refreshSQLiteBridgeAdminStatus({ silent = false } = {}) {
+  if (!supportsSQLiteBridgeAdmin() || !state.uid) {
+    state.sqliteBridgeAdmin.status = null;
+    state.sqliteBridgeAdmin.error = "";
+    state.sqliteBridgeAdmin.loading = false;
+    return;
+  }
+
+  if (!silent) {
+    state.sqliteBridgeAdmin.loading = true;
+    renderSQLiteBridgeAdmin();
+  }
+
+  try {
+    state.sqliteBridgeAdmin.status = await dataBackend.loadAdminStatus();
+    state.sqliteBridgeAdmin.error = "";
+  } catch (error) {
+    state.sqliteBridgeAdmin.error = error?.message || String(error || "未知錯誤");
+  } finally {
+    state.sqliteBridgeAdmin.loading = false;
+    renderSQLiteBridgeAdmin();
+  }
 }
 
 function upsertMonthlySnapshot(snapshot) {
@@ -716,6 +757,8 @@ function bindEvents() {
     await loadSettingsState();
     renderAll();
   });
+  $("sqliteBridgeRefreshBtn")?.addEventListener("click", () => refreshSQLiteBridgeAdminStatus());
+  $("sqliteRebuildSnapshotsBtn")?.addEventListener("click", rebuildSQLiteBridgeSnapshots);
 
   $("emailAuthForm").addEventListener("submit", handleEmailAuth);
   $("desktopViewBtn").addEventListener("click", toggleDesktopMode);
@@ -1501,6 +1544,112 @@ function renderAll() {
   renderCharts();
   renderDesktopSidebar();
   renderDesktopSettings();
+  renderSQLiteBridgeAdmin();
+}
+
+function renderSQLiteBridgeAdmin() {
+  const card = $("sqliteBridgeAdminCard");
+  if (!card) {
+    return;
+  }
+
+  const supported = supportsSQLiteBridgeAdmin() && Boolean(state.uid);
+  card.classList.toggle("hidden", !supported);
+  if (!supported) {
+    return;
+  }
+
+  const statusNode = $("sqliteBridgeAdminStatus");
+  const countsNode = $("sqliteBridgeAdminCounts");
+  const refreshButton = $("sqliteBridgeRefreshBtn");
+  const rebuildButton = $("sqliteRebuildSnapshotsBtn");
+  const { status, loading, rebuilding, error } = state.sqliteBridgeAdmin;
+
+  if (refreshButton) {
+    refreshButton.disabled = loading || rebuilding;
+    refreshButton.textContent = loading ? "更新中..." : "重新整理狀態";
+  }
+  if (rebuildButton) {
+    rebuildButton.disabled = loading || rebuilding;
+    rebuildButton.textContent = rebuilding ? "重建中..." : "重建 snapshot";
+  }
+
+  if (error) {
+    statusNode.textContent = `bridge 狀態讀取失敗：${error}`;
+    countsNode.textContent = "";
+    return;
+  }
+
+  if (!status) {
+    statusNode.textContent = loading ? "讀取 bridge 狀態中..." : "尚未讀取 bridge 狀態";
+    countsNode.textContent = "";
+    return;
+  }
+
+  const dirtyFromMonth = String(status.settings?.snapshotDirtyFromMonth || "").trim() || "無";
+  const earliestTransactionMonth = String(status.history?.earliestTransactionMonth || "").trim() || "無";
+  statusNode.textContent = [
+    `DB：${status.dbPath || ""}`,
+    `使用者：${status.userId || state.uid}`,
+    `待重建起始月：${dirtyFromMonth}`,
+    `最早交易月：${earliestTransactionMonth}`
+  ].join(" | ");
+  countsNode.textContent = [
+    `accounts ${Number(status.counts?.accounts || 0)}`,
+    `categories ${Number(status.counts?.categories || 0)}`,
+    `transactions ${Number(status.counts?.transactions || 0)}`,
+    `snapshots ${Number(status.counts?.monthlySnapshots || 0)}`,
+    `common summaries ${Number(status.counts?.commonSummaries || 0)}`
+  ].join(" | ");
+}
+
+async function rebuildSQLiteBridgeSnapshots() {
+  if (!supportsSQLiteBridgeAdmin() || !state.uid) {
+    return;
+  }
+
+  const suggestedMonth = String(state.settings.snapshotDirtyFromMonth || state.earliestTransactionMonth || "").trim();
+  const input = window.prompt("輸入要重建的起始月份，格式為 YYYY-MM。留白代表全部重建。", suggestedMonth);
+  if (input === null) {
+    return;
+  }
+  const fromMonth = String(input || "").trim();
+  if (fromMonth && !/^\d{4}-\d{2}$/.test(fromMonth)) {
+    showMessage("月份格式必須是 YYYY-MM。", "重建失敗");
+    return;
+  }
+  if (!window.confirm(`確定要${fromMonth ? `從 ${fromMonth}` : "全部"}重建 monthly snapshots 嗎？`)) {
+    return;
+  }
+
+  state.sqliteBridgeAdmin.rebuilding = true;
+  state.sqliteBridgeAdmin.error = "";
+  renderSQLiteBridgeAdmin();
+
+  try {
+    const result = await dataBackend.rebuildSnapshots({
+      fromMonth
+    });
+    await Promise.all([
+      loadSettingsState(),
+      loadHistoryMetadata(),
+      loadCurrentViewData({ resetSnapshots: true }),
+      refreshSQLiteBridgeAdminStatus({ silent: true })
+    ]);
+    renderAll();
+    showMessage(
+      `已重建 ${Number(result.snapshotCount || 0)} 個月份快照，涵蓋到 ${String(result.toMonth || "無")}。`,
+      "Snapshot 重建完成"
+    );
+  } catch (error) {
+    const message = error?.message || String(error || "未知錯誤");
+    state.sqliteBridgeAdmin.error = message;
+    renderSQLiteBridgeAdmin();
+    showMessage(`重建失敗：${message}`, "Snapshot 重建失敗");
+  } finally {
+    state.sqliteBridgeAdmin.rebuilding = false;
+    renderSQLiteBridgeAdmin();
+  }
 }
 
 function getDesktopSidebarStructureRenderKey(groups) {

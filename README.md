@@ -23,7 +23,7 @@
 - `commonSummaries` 在 SQLite bridge 模式下也會直接持久化到 SQLite，不再只靠瀏覽器 `localStorage`
 - 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具
 
-### SQLite 匯入測試
+### SQLite 匯入流程
 
 如果你要直接把某個 Firebase / Firestore 使用者匯成 SQLite：
 
@@ -101,6 +101,36 @@ npm run sqlite:export-json -- \
 4. `sqlite:export-json`
 
 不要同時對同一顆 `.db` 平行執行 `--replace` 匯入、快照重建與驗證。
+
+### SQLite bridge + serve 流程
+
+這條流程只負責把既有 SQLite `.db` 接到前端，不包含任何匯入動作。
+
+最簡單的啟動方式：
+
+```bash
+npm run sqlite:frontend -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --user-id local-user
+```
+
+這支腳本會做三件事：
+
+1. 產生 `firebase-config.js`
+2. 啟動 `sqlite-http-bridge.py`
+3. 啟動前端靜態 server
+
+按 `Ctrl+C` 會一起停止 bridge 與前端 server。
+
+如果你要分開控制 bridge 與 serve，仍可各自啟動：
+
+```bash
+npm run sqlite:bridge -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --user-id local-user
+
+npm run serve
+```
 
 ## Command line 項目匯入 / 匯出
 
@@ -287,6 +317,8 @@ curl -X POST http://127.0.0.1:8765/admin/rebuild-snapshots \
   -H 'Content-Type: application/json' \
   -d '{"fromMonth":"2024-01"}'
 ```
+
+前端 `設定` 分頁也會在這個模式下顯示 bridge 管理卡片，可直接查看狀態與手動重建 snapshot。
 
 #### SQLite seed fallback 模式
 

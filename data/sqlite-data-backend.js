@@ -124,6 +124,9 @@ function createSQLiteHttpBackend(options = {}) {
     async loadCommonSummariesState() {
       return requestApiJson(baseUrl, "common-summaries");
     },
+    async loadAdminStatus() {
+      return requestApiJson(baseUrl, "admin/status");
+    },
     async loadTransactionsByDateRange(startDate = "", endDate = "") {
       return requestApiJson(baseUrl, "transactions", {
         params: { startDate, endDate }
@@ -143,6 +146,12 @@ function createSQLiteHttpBackend(options = {}) {
     },
     async replaceCommonSummariesState(payload) {
       await requestApiJson(baseUrl, "common-summaries", {
+        method: "POST",
+        body: payload
+      });
+    },
+    async rebuildSnapshots(payload = {}) {
+      return requestApiJson(baseUrl, "admin/rebuild-snapshots", {
         method: "POST",
         body: payload
       });

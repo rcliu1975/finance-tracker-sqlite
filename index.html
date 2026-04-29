@@ -386,6 +386,17 @@
           </form>
         </div>
 
+        <div id="sqliteBridgeAdminCard" class="card hidden">
+          <h3>SQLite Bridge 管理</h3>
+          <p class="section-hint">這個區塊只會在 SQLite bridge 模式顯示，用來檢查 bridge 狀態與重建 snapshot。</p>
+          <p id="sqliteBridgeAdminStatus">尚未讀取 bridge 狀態</p>
+          <p id="sqliteBridgeAdminCounts" class="section-hint"></p>
+          <div class="table-actions">
+            <button id="sqliteBridgeRefreshBtn" type="button">重新整理狀態</button>
+            <button id="sqliteRebuildSnapshotsBtn" type="button">重建 snapshot</button>
+          </div>
+        </div>
+
           </section>
         </main>
       </div>
