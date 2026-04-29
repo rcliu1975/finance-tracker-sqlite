@@ -5,6 +5,10 @@
 
 這是一個以 SQLite 為主、保留 Firebase / Firestore 相容能力的前端記帳工具，適合用來管理家庭收支、固定支出與基礎財務分析。
 
+SQLite-only 啟動可直接看：
+
+- [`SQLITE_QUICKSTART.md`](/home/roger/WorkSpace/finance-tracker-sqlite/SQLITE_QUICKSTART.md)
+
 ## SQLite 遷移現況
 
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
@@ -19,6 +23,7 @@
 - 已有 SQLite HTTP bridge：`scripts/sqlite-http-bridge.py`
 - 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為接上 SQLite backend 預留穩定介面
 - 前端 runtime / session 已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
+- 前端 session/bootstrap 初始化已抽到 `data/app-session.js`
 - 已加入 `APP_STORAGE_BACKEND=sqlite` provider 切換；目前可透過 `APP_SQLITE_API_BASE_URL` 直接連本機 SQLite bridge，`seed JSON + localStorage` 改為 fallback
 - `commonSummaries` 在 SQLite bridge 模式下也會直接持久化到 SQLite，不再只靠瀏覽器 `localStorage`
 - 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具

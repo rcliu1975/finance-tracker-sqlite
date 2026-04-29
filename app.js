@@ -1,5 +1,4 @@
-import { loadAppRuntime } from "./data/app-runtime.js";
-import { createAppDataBackend } from "./data/app-data-backend.js";
+import { applySessionBootstrapState, initializeAppSession } from "./data/app-session.js";
 
 let runtimeSessionObserved = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
@@ -28,44 +27,38 @@ window.addEventListener("unhandledrejection", (event) => {
   }
 });
 
-const appRuntime = await loadAppRuntime();
+const appSession = await initializeAppSession();
 const {
-  db,
+  runtime: appRuntime,
+  dataBackend,
   bootstrapError: runtimeBootstrapError,
   bootstrapErrorMessage,
   hasConfig: hasBackendConfig,
   initialData: runtimeInitialData,
-  localStorageKey: runtimeLocalStorageKey,
   modeNotice,
   providerLabel
-} = appRuntime;
-const waitingProviderStatus = `等待 ${providerLabel} 連線`;
-const dataBackend = createAppDataBackend({
-  getDb: () => db,
-  getUid: () => state.uid,
-  initialData: runtimeInitialData,
-  storageKey: runtimeLocalStorageKey,
-  apiBaseUrl: appRuntime.sqliteApiBaseUrl,
-  providerKey: appRuntime.providerKey
-});
+} = appSession;
+const waitingProviderStatus = appSession.waitingStatus;
 const seededCommonSummaries =
   runtimeInitialData?.commonSummaries && typeof runtimeInitialData.commonSummaries === "object"
     ? runtimeInitialData.commonSummaries
     : {};
 
-if (hasBackendConfig) {
-  document.getElementById("sessionStatus").textContent = waitingProviderStatus;
-}
-
-if (runtimeBootstrapError && bootstrapErrorMessage) {
-  document.getElementById("sessionError").textContent = bootstrapErrorMessage;
-}
-
-if (modeNotice) {
-  document.getElementById("sessionError").textContent = [document.getElementById("sessionError").textContent, modeNotice]
-    .filter(Boolean)
-    .join(" ");
-}
+applySessionBootstrapState({
+  hasConfig: hasBackendConfig,
+  waitingStatus: waitingProviderStatus,
+  bootstrapError: runtimeBootstrapError,
+  bootstrapErrorMessage,
+  modeNotice,
+  setStatus(nextValue) {
+    document.getElementById("sessionStatus").textContent = String(nextValue || "");
+  },
+  setError(nextValue) {
+    const current = document.getElementById("sessionError").textContent;
+    document.getElementById("sessionError").textContent =
+      typeof nextValue === "function" ? String(nextValue(current) || "") : String(nextValue || "");
+  }
+});
 
 const DEFAULT_CATEGORIES = [
   { name: "餐飲費", type: "expense", order: 0 },
@@ -280,13 +273,13 @@ if (hasBackendConfig) {
     if (!user) {
       state.uid = null;
       resetStateData();
-      renderAuthState(null);
+      renderSessionState(null);
       renderAll();
       return;
     }
 
     state.uid = user.uid;
-    renderAuthState(user);
+    renderSessionState(user);
     await bootstrap();
   });
 }
@@ -1423,7 +1416,7 @@ function closeDesktopItemModal() {
   $("desktopItemForm").elements.order.disabled = false;
 }
 
-function renderAuthState(user) {
+function renderSessionState(user) {
   if (!user) {
     document.body.classList.add("session-signed-out");
     $("appShell").classList.add("hidden");
