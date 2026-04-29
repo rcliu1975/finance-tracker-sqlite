@@ -20,6 +20,7 @@ SQLite-only 啟動可直接看：
 - `sqlite:import-firestore`、`sqlite:import-csv`、`sqlite:import-items` 都已整合到同一支主程式
 - 已有 SQLite 項目 CSV 匯出腳本：`scripts/export-items-from-sqlite.py`
 - 已有 SQLite 記錄 CSV 匯出腳本：`scripts/export-records-from-sqlite.py`
+- 已有桌面側欄月矩陣 CSV 匯出腳本：`scripts/export-desktop-sidebar-matrix.py`
 - 已有 SQLite -> 前端 seed JSON 匯出腳本：`scripts/export-sqlite-to-json.py`
 - 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
@@ -215,6 +216,45 @@ npm run sqlite:export-records -- \
 - `摘要`
 - `備註`
 
+## Command line 桌面側欄月矩陣匯出
+
+若需要依桌面版側欄順序，把總資產負債結餘、各群組與各項目展開成「列」，並把月份展開成「欄」：
+
+```bash
+npm run sqlite:export-sidebar-matrix -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --output ~/desktop-sidebar-matrix.csv
+```
+
+說明：
+
+- `--db`：來源 SQLite 資料庫
+- `--output`：輸出的 CSV 檔案路徑
+- `--user-id`：可選；未指定時取資料庫內第一個 user
+- `--start-month`：可選；預設 `2009-08`
+- `--end-month`：可選；未指定時取資料庫內最後一個 snapshot 月份
+
+輸出結構：
+
+- 左側固定欄位：
+  - `順序`
+  - `群組`
+  - `列類型`
+  - `名稱`
+  - `ID`
+- 右側月份欄位：
+  - 例如 `2009/8`、`2009/9`、`2009/10`
+
+列順序會對齊桌面版側欄：
+
+1. `總資產負債結餘`
+2. `資產` 群組與其帳戶
+3. `負債` 群組與其帳戶
+4. `收入` 群組與其分類
+5. `支出` 群組與其分類
+6. `業外收入` 群組與其分類
+7. `業外支出` 群組與其分類
+
 ## 目前功能
 
 - 記錄收入、支出與轉帳記錄
@@ -248,6 +288,7 @@ npm run sqlite:export-records -- \
 - `scripts/import-to-sqlite.py`: 統一 SQLite 匯入主入口，支援 `firestore`、`csv`、`items` 三種來源
 - `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV
 - `scripts/export-records-from-sqlite.py`: 從 SQLite 資料庫匯出記錄 CSV
+- `scripts/export-desktop-sidebar-matrix.py`: 依桌面側欄順序匯出月矩陣 CSV
 - `scripts/rebuild-sqlite-snapshots.py`: 依 SQLite 交易資料重建 `monthly_snapshots`
 - `scripts/verify-sqlite-db.py`: 驗證產生出的 SQLite 資料庫筆數與外鍵狀態
 - `scripts/sqlite-http-bridge.py`: 提供前端直接讀寫 SQLite `.db` 的本機 HTTP bridge

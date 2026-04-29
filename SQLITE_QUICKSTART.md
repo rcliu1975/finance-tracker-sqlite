@@ -81,6 +81,7 @@ npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
 npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --apply
 npm run sqlite:export-items -- --db ~/finance-tracker-sqlite-test.db --output ~/items-export.csv
 npm run sqlite:export-records -- --db ~/finance-tracker-sqlite-test.db --output ~/records-export.csv
+npm run sqlite:export-sidebar-matrix -- --db ~/finance-tracker-sqlite-test.db --output ~/desktop-sidebar-matrix.csv
 ```
 
 ## 6. SQLite seed fallback

@@ -2590,25 +2590,10 @@ function buildDesktopCategoryItems(type, monthTransactions, monthSnapshot = null
           valueText: fmt(getSnapshotCategoryTotal(state.desktopDate, category.id))
         };
       }
-      const amount = monthTransactions
-        .filter((transaction) => {
-          const transactionType = getTransactionType(transaction);
-          const item =
-            isIncomeCategoryType(type) || transactionType === "refund"
-              ? getTransactionFromItem(transaction)
-              : getTransactionToItem(transaction);
-          if (item.id !== category.id) {
-            return false;
-          }
-          if (transactionType === getCategoryFlowType(type)) {
-            return true;
-          }
-          return isExpenseCategoryType(type) && transactionType === "refund";
-        })
-        .reduce((sum, transaction) => {
-          const value = Number(transaction.amount || 0);
-          return sum + (getTransactionType(transaction) === "refund" ? -value : value);
-        }, 0);
+      const amount = monthTransactions.reduce((sum, transaction) => {
+        const contribution = getTransactionCategoryContribution(transaction, type).find((entry) => entry.item.id === category.id);
+        return sum + Number(contribution?.delta || 0);
+      }, 0);
 
       return {
         key: `category:${category.id}`,
@@ -3077,6 +3062,51 @@ function getTransactionType(transaction) {
   return routeTypeMap[fromType]?.[toType] || "transfer";
 }
 
+function signedItemDelta(item, side, amount) {
+  const itemType = String(item?.type || "");
+  if (itemType === "asset" || itemType === "expense" || itemType === "nonOperatingExpense") {
+    return side === "from" ? -amount : amount;
+  }
+  if (itemType === "liability" || itemType === "income" || itemType === "nonOperatingIncome") {
+    return side === "from" ? amount : -amount;
+  }
+  return 0;
+}
+
+function getTransactionCategoryContribution(transaction, categoryType = "") {
+  const amount = Number(transaction.amount || 0);
+  const contributions = [];
+  [["from", getTransactionFromItem(transaction)], ["to", getTransactionToItem(transaction)]].forEach(([side, item]) => {
+    if (item.kind !== "category" || !item.id) {
+      return;
+    }
+    if (categoryType && item.type !== categoryType) {
+      return;
+    }
+    const delta = signedItemDelta(item, side, amount);
+    if (!delta) {
+      return;
+    }
+    contributions.push({ side, item, delta });
+  });
+  return contributions;
+}
+
+function getTransactionAccountContribution(transaction, accountId = "") {
+  const amount = Number(transaction.amount || 0);
+  let delta = 0;
+  [["from", getTransactionFromItem(transaction)], ["to", getTransactionToItem(transaction)]].forEach(([side, item]) => {
+    if (item.kind !== "account" || !item.id) {
+      return;
+    }
+    if (accountId && item.id !== accountId) {
+      return;
+    }
+    delta += signedItemDelta(item, side, amount);
+  });
+  return delta;
+}
+
 function getTransactionFromItem(transaction) {
   return resolveTransactionItem(transaction.fromItem);
 }
@@ -3234,44 +3264,9 @@ function buildAccountBalances(maxMonth = "") {
       continue;
     }
 
-    const amount = Number(transaction.amount || 0);
-    const type = getTransactionType(transaction);
-    const fromItem = getTransactionFromItem(transaction);
-    const toItem = getTransactionToItem(transaction);
-
-    if (type === "expense" && fromItem.kind === "account") {
-      balances[fromItem.id] = (balances[fromItem.id] || 0) + (fromItem.type === "liability" ? amount : -amount);
-    }
-    if (type === "income" && toItem.kind === "account") {
-      balances[toItem.id] = (balances[toItem.id] || 0) + amount;
-    }
-    if (type === "refund" && toItem.kind === "account") {
-      balances[toItem.id] = (balances[toItem.id] || 0) + (toItem.type === "liability" ? -amount : amount);
-    }
-    if (type === "payment") {
-      if (fromItem.kind === "account") {
-        balances[fromItem.id] = (balances[fromItem.id] || 0) - amount;
-      }
-      if (toItem.kind === "account") {
-        balances[toItem.id] = (balances[toItem.id] || 0) - amount;
-      }
-    }
-    if (type === "advance") {
-      if (fromItem.kind === "account") {
-        balances[fromItem.id] = (balances[fromItem.id] || 0) + amount;
-      }
-      if (toItem.kind === "account") {
-        balances[toItem.id] = (balances[toItem.id] || 0) + amount;
-      }
-    }
-    if (type === "transfer") {
-      if (fromItem.kind === "account") {
-        balances[fromItem.id] = (balances[fromItem.id] || 0) - amount;
-      }
-      if (toItem.kind === "account") {
-        balances[toItem.id] = (balances[toItem.id] || 0) + amount;
-      }
-    }
+    state.accounts.forEach((account) => {
+      balances[account.id] = (balances[account.id] || 0) + getTransactionAccountContribution(transaction, account.id);
+    });
   }
 
   state.derivedDataCache.accountBalances.set(cacheKey, balances);
@@ -3305,17 +3300,21 @@ function renderOverview() {
   const monthIncome = currentSnapshot
     ? getSnapshotMonthIncome(currentMonth)
     : state.transactions
-        .filter((transaction) => monthKey(transaction.date) === currentMonth && getTransactionType(transaction) === "income")
-        .reduce((sum, transaction) => sum + transaction.amount, 0);
+        .filter((transaction) => monthKey(transaction.date) === currentMonth)
+        .reduce(
+          (sum, transaction) =>
+            sum + getTransactionCategoryContribution(transaction, "income").reduce((subtotal, entry) => subtotal + entry.delta, 0),
+          0
+        );
   const monthExpense = currentSnapshot
     ? getSnapshotMonthExpense(currentMonth)
     : state.transactions
-        .filter(
-          (transaction) =>
-            monthKey(transaction.date) === currentMonth &&
-            (getTransactionType(transaction) === "expense" || getTransactionType(transaction) === "refund")
-        )
-        .reduce((sum, transaction) => sum + (getTransactionType(transaction) === "refund" ? -transaction.amount : transaction.amount), 0);
+        .filter((transaction) => monthKey(transaction.date) === currentMonth)
+        .reduce(
+          (sum, transaction) =>
+            sum + getTransactionCategoryContribution(transaction, "expense").reduce((subtotal, entry) => subtotal + entry.delta, 0),
+          0
+        );
 
   $("monthIncome").textContent = fmt(monthIncome);
   $("monthExpense").textContent = fmt(monthExpense);
@@ -3782,52 +3781,7 @@ function getDesktopBalanceDelta(transaction, scope) {
 }
 
 function getAccountDelta(transaction, accountId) {
-  const amount = Number(transaction.amount || 0);
-  const type = getTransactionType(transaction);
-  const fromItem = getTransactionFromItem(transaction);
-  const toItem = getTransactionToItem(transaction);
-  let delta = 0;
-
-  if (type === "expense" && fromItem.kind === "account" && fromItem.id === accountId) {
-    delta += fromItem.type === "liability" ? amount : -amount;
-  }
-
-  if (type === "income" && toItem.kind === "account" && toItem.id === accountId) {
-    delta += amount;
-  }
-
-  if (type === "refund" && toItem.kind === "account" && toItem.id === accountId) {
-    delta += toItem.type === "liability" ? -amount : amount;
-  }
-
-  if (type === "payment") {
-    if (fromItem.kind === "account" && fromItem.id === accountId) {
-      delta -= amount;
-    }
-    if (toItem.kind === "account" && toItem.id === accountId) {
-      delta -= amount;
-    }
-  }
-
-  if (type === "advance") {
-    if (fromItem.kind === "account" && fromItem.id === accountId) {
-      delta += amount;
-    }
-    if (toItem.kind === "account" && toItem.id === accountId) {
-      delta += amount;
-    }
-  }
-
-  if (type === "transfer") {
-    if (fromItem.kind === "account" && fromItem.id === accountId) {
-      delta -= amount;
-    }
-    if (toItem.kind === "account" && toItem.id === accountId) {
-      delta += amount;
-    }
-  }
-
-  return delta;
+  return getTransactionAccountContribution(transaction, accountId);
 }
 
 function matchesDesktopSidebarSelection(transaction) {
@@ -4016,16 +3970,13 @@ function buildChartData() {
       byCategory[category?.name || "未分類"] = Number(amount || 0);
     });
   } else {
-    const monthTransactions = state.transactions.filter(
-      (transaction) =>
-        monthKey(transaction.date) === currentMonth &&
-        (getTransactionType(transaction) === "expense" || getTransactionType(transaction) === "refund")
-    );
+    const monthTransactions = state.transactions.filter((transaction) => monthKey(transaction.date) === currentMonth);
 
     monthTransactions.forEach((transaction) => {
-      const type = getTransactionType(transaction);
-      const categoryName = itemText(type === "refund" ? getTransactionFromItem(transaction) : getTransactionToItem(transaction)) || "未分類";
-      byCategory[categoryName] = (byCategory[categoryName] || 0) + (type === "refund" ? -transaction.amount : transaction.amount);
+      getTransactionCategoryContribution(transaction, "expense").forEach((entry) => {
+        const categoryName = itemText(entry.item) || "未分類";
+        byCategory[categoryName] = (byCategory[categoryName] || 0) + entry.delta;
+      });
     });
   }
 
@@ -4039,16 +3990,24 @@ function buildChartData() {
     getMonthlySnapshot(month)
       ? getSnapshotMonthIncome(month)
       : state.transactions
-          .filter((transaction) => monthKey(transaction.date) === month && getTransactionType(transaction) === "income")
-          .reduce((sum, transaction) => sum + transaction.amount, 0)
+          .filter((transaction) => monthKey(transaction.date) === month)
+          .reduce(
+            (sum, transaction) =>
+              sum + getTransactionCategoryContribution(transaction, "income").reduce((subtotal, entry) => subtotal + entry.delta, 0),
+            0
+          )
   );
 
   const expenseSeries = months.map((month) =>
     getMonthlySnapshot(month)
       ? getSnapshotMonthExpense(month)
       : state.transactions
-          .filter((transaction) => monthKey(transaction.date) === month && (getTransactionType(transaction) === "expense" || getTransactionType(transaction) === "refund"))
-          .reduce((sum, transaction) => sum + (getTransactionType(transaction) === "refund" ? -transaction.amount : transaction.amount), 0)
+          .filter((transaction) => monthKey(transaction.date) === month)
+          .reduce(
+            (sum, transaction) =>
+              sum + getTransactionCategoryContribution(transaction, "expense").reduce((subtotal, entry) => subtotal + entry.delta, 0),
+            0
+          )
   );
 
   const chartData = {

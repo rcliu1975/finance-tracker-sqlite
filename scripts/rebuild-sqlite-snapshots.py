@@ -13,7 +13,6 @@ import json
 
 from sqlite_migration_lib import (
     connect_sqlite,
-    infer_transaction_type,
     is_expense_category_type,
     is_income_category_type,
     list_months,
@@ -95,33 +94,23 @@ def resolve_item(kind: str, item_id: str, accounts_by_id: dict, categories_by_id
     }
 
 
+def signed_item_delta(item: dict, side: str, amount: int) -> int:
+    item_type = str(item.get("type", "") or "")
+    if item_type in {"asset", "expense", "nonOperatingExpense"}:
+        return -amount if side == "from" else amount
+    if item_type in {"liability", "income", "nonOperatingIncome"}:
+        return amount if side == "from" else -amount
+    return 0
+
+
 def apply_transaction_to_balances(balances: dict[str, int], transaction: dict) -> None:
     amount = int(transaction["amount"] or 0)
-    txn_type = infer_transaction_type(transaction["fromItem"]["type"], transaction["toItem"]["type"])
     from_item = transaction["fromItem"]
     to_item = transaction["toItem"]
-
-    if txn_type == "expense" and from_item["kind"] == "account":
-        balances[from_item["id"]] = balances.get(from_item["id"], 0) + (amount if from_item["type"] == "liability" else -amount)
-    if txn_type == "income" and to_item["kind"] == "account":
-        balances[to_item["id"]] = balances.get(to_item["id"], 0) + amount
-    if txn_type == "refund" and to_item["kind"] == "account":
-        balances[to_item["id"]] = balances.get(to_item["id"], 0) + (-amount if to_item["type"] == "liability" else amount)
-    if txn_type == "payment":
-        if from_item["kind"] == "account":
-            balances[from_item["id"]] = balances.get(from_item["id"], 0) - amount
-        if to_item["kind"] == "account":
-            balances[to_item["id"]] = balances.get(to_item["id"], 0) - amount
-    if txn_type == "advance":
-        if from_item["kind"] == "account":
-            balances[from_item["id"]] = balances.get(from_item["id"], 0) + amount
-        if to_item["kind"] == "account":
-            balances[to_item["id"]] = balances.get(to_item["id"], 0) + amount
-    if txn_type == "transfer":
-        if from_item["kind"] == "account":
-            balances[from_item["id"]] = balances.get(from_item["id"], 0) - amount
-        if to_item["kind"] == "account":
-            balances[to_item["id"]] = balances.get(to_item["id"], 0) + amount
+    if from_item["kind"] == "account" and from_item["id"]:
+        balances[from_item["id"]] = balances.get(from_item["id"], 0) + signed_item_delta(from_item, "from", amount)
+    if to_item["kind"] == "account" and to_item["id"]:
+        balances[to_item["id"]] = balances.get(to_item["id"], 0) + signed_item_delta(to_item, "to", amount)
 
 
 def build_snapshots(accounts: list[dict], transactions: list[dict], requested_from_month: str, dirty_from_month: str) -> dict:
@@ -150,21 +139,18 @@ def build_snapshots(accounts: list[dict], transactions: list[dict], requested_fr
         while pointer < len(transactions) and month_key(transactions[pointer]["date"]) == month:
             transaction = transactions[pointer]
             amount = int(transaction["amount"] or 0)
-            txn_type = infer_transaction_type(transaction["fromItem"]["type"], transaction["toItem"]["type"])
             apply_transaction_to_balances(balances, transaction)
-
-            if txn_type == "income":
-                income_total += amount
-                if transaction["fromItem"]["kind"] == "category" and transaction["fromItem"]["id"]:
-                    category_totals[transaction["fromItem"]["id"]] = category_totals.get(transaction["fromItem"]["id"], 0) + amount
-            elif txn_type == "expense":
-                expense_total += amount
-                if transaction["toItem"]["kind"] == "category" and transaction["toItem"]["id"]:
-                    category_totals[transaction["toItem"]["id"]] = category_totals.get(transaction["toItem"]["id"], 0) + amount
-            elif txn_type == "refund":
-                expense_total -= amount
-                if transaction["fromItem"]["kind"] == "category" and transaction["fromItem"]["id"]:
-                    category_totals[transaction["fromItem"]["id"]] = category_totals.get(transaction["fromItem"]["id"], 0) - amount
+            for side, item in (("from", transaction["fromItem"]), ("to", transaction["toItem"])):
+                if item["kind"] != "category" or not item["id"]:
+                    continue
+                delta = signed_item_delta(item, side, amount)
+                if not delta:
+                    continue
+                category_totals[item["id"]] = category_totals.get(item["id"], 0) + delta
+                if item["type"] == "income":
+                    income_total += delta
+                elif item["type"] == "expense":
+                    expense_total += delta
 
             source_last_transaction_date = transaction["date"] or source_last_transaction_date
             pointer += 1
