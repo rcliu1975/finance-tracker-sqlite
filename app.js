@@ -45,6 +45,7 @@ const dataBackend = createAppDataBackend({
   getUid: () => state.uid,
   initialData: runtimeInitialData,
   storageKey: runtimeLocalStorageKey,
+  apiBaseUrl: appRuntime.sqliteApiBaseUrl,
   providerKey: appRuntime.providerKey
 });
 const seededCommonSummaries =

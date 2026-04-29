@@ -105,7 +105,8 @@ function writeConfigFile(outputPath, config) {
   const appRuntime = {
     storageBackend,
     localUserId: String(config.APP_LOCAL_USER_ID || "local-user").trim() || "local-user",
-    sqliteSeedPath: String(config.APP_SQLITE_SEED_PATH || "").trim()
+    sqliteSeedPath: String(config.APP_SQLITE_SEED_PATH || "").trim(),
+    sqliteApiBaseUrl: String(config.APP_SQLITE_API_BASE_URL || "").trim()
   };
 
   const content = `// 此檔案由 scripts/generate-firebase-config.js 產生，請勿手動編輯。\nexport const firebaseConfig = ${JSON.stringify(firebaseConfig, null, 2)};\n\nexport const firebaseRuntime = ${JSON.stringify(firebaseRuntime, null, 2)};\n\nexport const appRuntime = ${JSON.stringify(appRuntime, null, 2)};\n`;

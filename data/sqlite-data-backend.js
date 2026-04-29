@@ -70,7 +70,110 @@ function writeLocalSnapshot(storageKey, snapshot) {
   globalThis.localStorage.setItem(storageKey, JSON.stringify(snapshot));
 }
 
+function buildApiUrl(baseUrl, path, params = {}) {
+  const url = new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== "" && value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  });
+  return url;
+}
+
+async function requestApiJson(baseUrl, path, { method = "GET", params = {}, body } = {}) {
+  const response = await fetch(buildApiUrl(baseUrl, path, params), {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `${response.status} ${response.statusText}`);
+  }
+  return payload;
+}
+
+function createSQLiteHttpBackend(options = {}) {
+  const baseUrl = String(options.apiBaseUrl || "").trim();
+  if (!baseUrl) {
+    throw new Error("缺少 SQLite API base URL。");
+  }
+
+  return {
+    async loadCollectionItems(name) {
+      return requestApiJson(baseUrl, `collection/${name}`);
+    },
+    async loadHistoryMetadata() {
+      return requestApiJson(baseUrl, "history-metadata");
+    },
+    async loadLatestSnapshotBeforeMonth(month) {
+      return requestApiJson(baseUrl, `snapshots/latest-before/${month}`);
+    },
+    async loadReferenceData() {
+      return requestApiJson(baseUrl, "reference-data");
+    },
+    async loadSettingsState() {
+      return requestApiJson(baseUrl, "settings/state");
+    },
+    async loadSnapshotByMonth(month) {
+      return requestApiJson(baseUrl, `snapshots/${month}`);
+    },
+    async loadStoredSettingsState() {
+      return requestApiJson(baseUrl, "settings/state");
+    },
+    async loadTransactionsByDateRange(startDate = "", endDate = "") {
+      return requestApiJson(baseUrl, "transactions", {
+        params: { startDate, endDate }
+      });
+    },
+    async replaceSettingsState(payload) {
+      await requestApiJson(baseUrl, "settings/replace", {
+        method: "POST",
+        body: payload
+      });
+    },
+    async saveSettingsPatch(payload) {
+      await requestApiJson(baseUrl, "settings/patch", {
+        method: "PATCH",
+        body: payload
+      });
+    },
+    async createUserCollectionDocument(collectionName, payload) {
+      return requestApiJson(baseUrl, `collection/${collectionName}`, {
+        method: "POST",
+        body: payload
+      });
+    },
+    async saveUserCollectionDocument(collectionName, id, payload) {
+      await requestApiJson(baseUrl, `collection/${collectionName}/${id}`, {
+        method: "PUT",
+        body: payload
+      });
+    },
+    async updateUserCollectionDocument(collectionName, id, payload) {
+      await requestApiJson(baseUrl, `collection/${collectionName}/${id}`, {
+        method: "PATCH",
+        body: payload
+      });
+    },
+    async deleteUserCollectionDocument(collectionName, id) {
+      await requestApiJson(baseUrl, `collection/${collectionName}/${id}`, {
+        method: "DELETE"
+      });
+    },
+    async batchUpdateUserCollectionOrders(items) {
+      await requestApiJson(baseUrl, "batch-update-orders", {
+        method: "POST",
+        body: { items }
+      });
+    }
+  };
+}
+
 export function createSQLiteDataBackend(options = {}) {
+  if (options.apiBaseUrl) {
+    return createSQLiteHttpBackend(options);
+  }
   const normalizedSeed = normalizeSeedData(options.initialData);
   const storageKey = String(options.storageKey || "").trim();
   const persistedSnapshot = readLocalSnapshot(storageKey);

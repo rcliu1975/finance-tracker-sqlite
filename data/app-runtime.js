@@ -35,9 +35,12 @@ export async function loadAppRuntime() {
       isLocalUser: true
     };
     const sqliteSeedPath = String(runtimeConfig.sqliteSeedPath || "").trim();
+    const sqliteApiBaseUrl = String(runtimeConfig.sqliteApiBaseUrl || "").trim();
     let initialData = null;
     let bootstrapError = loadError;
-    if (sqliteSeedPath) {
+    if (sqliteApiBaseUrl) {
+      initialData = null;
+    } else if (sqliteSeedPath) {
       try {
         initialData = await loadSQLiteSeedData(sqliteSeedPath);
       } catch (seedLoadError) {
@@ -57,10 +60,13 @@ export async function loadAppRuntime() {
       hasConfig: !loadError,
       configFileName: "firebase-config.js",
       initialData,
-      localStorageKey: `financeTrackerSqliteBackend:${localUserId}`,
+      localStorageKey: sqliteApiBaseUrl ? "" : `financeTrackerSqliteBackend:${localUserId}`,
+      sqliteApiBaseUrl,
       providerKey,
       providerLabel: "SQLite",
-      modeNotice: sqliteSeedPath
+      modeNotice: sqliteApiBaseUrl
+        ? `目前使用 SQLite HTTP bridge：${sqliteApiBaseUrl}`
+        : sqliteSeedPath
         ? "目前使用 SQLite seed + localStorage 模式。初次載入會讀取 seed，之後修改會保存在目前瀏覽器。"
         : "目前使用本機記憶體版 SQLite backend，重新整理頁面後資料不保留。",
       supportsEmailAuth: false,

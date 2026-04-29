@@ -9,17 +9,17 @@
 
 - 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
 - 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
-- 已有 Firestore -> SQLite 直接轉檔腳本：`scripts/export-firestore-to-sqlite.py`
-- 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
-- 已有 SQLite 項目 CSV 匯入腳本：`scripts/import-items-to-sqlite.py`
+- 已有統一 SQLite 匯入入口：`scripts/import-to-sqlite.py`
+- `sqlite:import-firestore`、`sqlite:import-csv`、`sqlite:import-items` 都已整合到同一支主程式
 - 已有 SQLite 項目 CSV 匯出腳本：`scripts/export-items-from-sqlite.py`
 - 已有 SQLite 記錄 CSV 匯出腳本：`scripts/export-records-from-sqlite.py`
 - 已有 SQLite -> 前端 seed JSON 匯出腳本：`scripts/export-sqlite-to-json.py`
 - 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
+- 已有 SQLite HTTP bridge：`scripts/sqlite-http-bridge.py`
 - 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為接上 SQLite backend 預留穩定介面
 - 前端 runtime / auth 已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
-- 已加入 `APP_STORAGE_BACKEND=sqlite` provider 切換骨架；目前可載入 SQLite seed JSON，並把後續修改存到瀏覽器 `localStorage`
+- 已加入 `APP_STORAGE_BACKEND=sqlite` provider 切換；目前可透過 `APP_SQLITE_API_BASE_URL` 直接連本機 SQLite bridge，`seed JSON + localStorage` 改為 fallback
 - 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具
 
 ### SQLite 匯入測試
@@ -44,7 +44,7 @@ npm run sqlite:import-firestore -- \
   --replace
 ```
 
-這支工具目前會匯出：
+這支工具目前會匯入：
 
 - `accounts`
 - `categories`
@@ -69,6 +69,8 @@ npm run sqlite:import-csv -- \
 - `--db` 建議指定在 repo 外部的位置
 - `--replace` 會覆蓋既有資料庫檔
 - 預設會建立單一使用者 `local-user`
+- 匯入完成後會直接重建 `monthly_snapshots`
+- 如果目標 `user` 已經有 transaction 記錄，匯入會直接拒絕，避免重複灌資料
 
 匯入後可再做一次快速驗證：
 
@@ -147,6 +149,7 @@ npm run sqlite:import-items -- \
 - 新項目會新增到資料庫
 - 類別項目的 `常用摘要` 會同步更新到 `common_summaries`
 - 若有帳戶期初餘額變動，會更新 `user_settings.snapshot_dirty_from_month`
+- 若目標 `user` 已經有 transaction 記錄，匯入會直接拒絕
 
 ## Command line 記錄匯出
 
@@ -201,13 +204,12 @@ npm run sqlite:export-records -- \
 - `scripts/cleanup-orphan-users.js`: 比對 Firebase Authentication 與 Firestore `users/{uid}`，清理不存在帳號的使用者資料
 - `scripts/generate-firebase-config.js`: 依 `.env` 產生 `firebase-config.js`
 - `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
-- `scripts/export-firestore-to-sqlite.py`: 把單一 Firebase / Firestore 使用者直接轉成 SQLite 資料庫
-- `scripts/import-csv-to-sqlite.py`: 把既有項目 / 交易 CSV 直接匯入 SQLite 資料庫
-- `scripts/import-items-to-sqlite.py`: 把項目 CSV 匯入既有 SQLite 資料庫
+- `scripts/import-to-sqlite.py`: 統一 SQLite 匯入主入口，支援 `firestore`、`csv`、`items` 三種來源
 - `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV
 - `scripts/export-records-from-sqlite.py`: 從 SQLite 資料庫匯出記錄 CSV
 - `scripts/rebuild-sqlite-snapshots.py`: 依 SQLite 交易資料重建 `monthly_snapshots`
 - `scripts/verify-sqlite-db.py`: 驗證產生出的 SQLite 資料庫筆數與外鍵狀態
+- `scripts/sqlite-http-bridge.py`: 提供前端直接讀寫 SQLite `.db` 的本機 HTTP bridge
 - `scripts/rebuild-monthly-snapshots.js`: 重建 `monthlySnapshots`，支援 dirty month、Emulator 與正式 Firestore
 
 ## 目前介面模式
@@ -235,7 +237,41 @@ npm run sqlite:export-records -- \
 
 ## 本機啟動
 
-### SQLite 骨架模式
+### SQLite 模式
+
+#### SQLite HTTP bridge 模式
+
+如果你要讓前端直接讀寫某顆 SQLite `.db`，先啟動 bridge：
+
+```bash
+npm run sqlite:bridge -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --user-id local-user
+```
+
+然後在 `.env` 設：
+
+```dotenv
+APP_STORAGE_BACKEND=sqlite
+APP_LOCAL_USER_ID=local-user
+APP_SQLITE_API_BASE_URL=http://127.0.0.1:8765
+APP_SQLITE_SEED_PATH=
+```
+
+再啟動前端：
+
+```bash
+npm run serve
+```
+
+這個模式目前特性如下：
+
+- 前端會直接透過 HTTP bridge 讀寫 SQLite `.db`
+- 不走 Firebase Authentication
+- 會以單一本機使用者進入 app
+- 需要 bridge 行程持續運作
+
+#### SQLite seed fallback 模式
 
 如果你要先驗證前端在非 Firebase 路徑下能否啟動，可把 `.env` 設成：
 

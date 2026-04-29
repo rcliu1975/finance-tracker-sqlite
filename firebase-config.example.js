@@ -19,5 +19,6 @@ export const firebaseRuntime = {
 export const appRuntime = {
   storageBackend: "firebase",
   localUserId: "local-user",
-  sqliteSeedPath: ""
+  sqliteSeedPath: "",
+  sqliteApiBaseUrl: ""
 };
