@@ -1,9 +1,9 @@
 # 家庭理財記帳
 
 > 這個 repo 是從 `finance-tracking` 拆出的 `SQLite` 遷移專案。  
-> 目前主程式與工具鏈仍以 Firebase / Firestore 為基底，尚未完成 SQLite 化；接下來的修改會在這個 repo 獨立進行。
+> 目前前端仍保留 Firebase / Firestore 相容路徑，但 SQLite 工具鏈與資料邊界已獨立整理在這個 repo；後續修改會持續往 SQLite 化收斂。
 
-這是一個以 Firebase Firestore 為資料儲存的前端記帳工具，適合用來管理家庭收支、固定支出與基礎財務分析。
+這是一個正在從 Firebase / Firestore 遷移到 SQLite 的前端記帳工具，適合用來管理家庭收支、固定支出與基礎財務分析。
 
 ## SQLite 遷移現況
 
@@ -12,13 +12,14 @@
 - 已有 CSV -> SQLite 匯入腳本：`scripts/import-csv-to-sqlite.py`
 - 已有 SQLite 項目 CSV 匯入腳本：`scripts/import-items-to-sqlite.py`
 - 已有 SQLite 項目 CSV 匯出腳本：`scripts/export-items-from-sqlite.py`
+- 已有 SQLite 記錄 CSV 匯出腳本：`scripts/export-records-from-sqlite.py`
 - 已有 SQLite -> 前端 seed JSON 匯出腳本：`scripts/export-sqlite-to-json.py`
 - 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
 - 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
-- 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為未來接上 SQLite backend 預留穩定介面
-- 前端 runtime / auth 也已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
-- 已加入 `APP_STORAGE_BACKEND=sqlite` 的 provider 切換骨架；目前可載入 SQLite seed JSON，並把後續修改存到瀏覽器 `localStorage`
-- 目前程式碼仍未切換到 SQLite；這一版先把資料模型邊界定清楚，再進入資料存取層替換
+- 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為接上 SQLite backend 預留穩定介面
+- 前端 runtime / auth 已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
+- 已加入 `APP_STORAGE_BACKEND=sqlite` provider 切換骨架；目前可載入 SQLite seed JSON，並把後續修改存到瀏覽器 `localStorage`
+- 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具
 
 ### SQLite 匯入測試
 
@@ -117,6 +118,31 @@ npm run sqlite:import-items -- \
 - 類別項目的 `常用摘要` 會同步更新到 `common_summaries`
 - 若有帳戶期初餘額變動，會更新 `user_settings.snapshot_dirty_from_month`
 
+## Command line 記錄匯出
+
+前端已不提供線上記錄匯出；若需要 CSV，請直接從 SQLite 匯出。
+
+```bash
+npm run sqlite:export-records -- \
+  --db ~/finance-tracker-sqlite-test.db \
+  --output ~/records-export.csv
+```
+
+說明：
+
+- `--db`：來源 SQLite 資料庫
+- `--output`：輸出的 CSV 檔案路徑
+- `--user-id`：可選；未指定時取資料庫內第一個 user
+
+匯出的欄位格式：
+
+- `日期`
+- `從項目`
+- `至項目`
+- `金額`
+- `摘要`
+- `備註`
+
 ## 目前功能
 
 - 記錄收入、支出與轉帳記錄
@@ -148,6 +174,7 @@ npm run sqlite:import-items -- \
 - `scripts/import-csv-to-sqlite.py`: 把既有項目 / 交易 CSV 直接匯入 SQLite 資料庫
 - `scripts/import-items-to-sqlite.py`: 把項目 CSV 匯入既有 SQLite 資料庫
 - `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV
+- `scripts/export-records-from-sqlite.py`: 從 SQLite 資料庫匯出記錄 CSV
 - `scripts/rebuild-sqlite-snapshots.py`: 依 SQLite 交易資料重建 `monthly_snapshots`
 - `scripts/verify-sqlite-db.py`: 驗證產生出的 SQLite 資料庫筆數與外鍵狀態
 - `scripts/rebuild-monthly-snapshots.js`: 重建 `monthlySnapshots`，支援 dirty month、Emulator 與正式 Firestore
@@ -418,7 +445,7 @@ npm run rebuild:monthly-snapshots -- --uid <uid> --production --from 2024-01 --a
 - 不會部署 `.git`、README、部署腳本、Firestore 規則、範例設定檔與本機測試輸出
 - 已補上 `favicon.svg`，避免頁面出現 favicon 404
 
-## Firestore 資料結構
+## 目前 Firebase 資料結構
 
 - `users/{uid}/accounts`
   項目欄位包含：`name`、`balance`、`type`、`order`。
