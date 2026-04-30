@@ -1,0 +1,10 @@
+﻿類別,項目名稱,幣別,期初餘額,次序,保護項目,ID,常用摘要
+資產,台幣帳戶,TWD,150000,10,否,acc_twd_cash,
+資產,美元帳戶,USD,2500,20,否,acc_usd_cash,
+負債,國泰世華costco卡,TWD,12000,10,否,acc_costco_card,
+收入,薪資收入,,,10,是,cat_salary,
+收入,其它收入,,,20,否,cat_other_income,現金回饋；利息
+支出,餐飲費,,,10,是,cat_food,午餐；晚餐
+支出,旅遊費,,,20,否,cat_travel,機票；住宿
+業外收入,利息,,,30,否,cat_interest,
+業外支出,手續費,,,30,否,cat_fee,

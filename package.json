@@ -15,6 +15,7 @@
     "sqlite:export-items": "python3 scripts/export-items-from-sqlite.py",
     "sqlite:export-records": "python3 scripts/export-records-from-sqlite.py",
     "sqlite:export-sidebar-matrix": "python3 scripts/export-desktop-sidebar-matrix.py",
+    "sqlite:generate-fx-csv-examples": "python3 scripts/generate-foreign-currency-csv-examples.py",
     "sqlite:rebuild-snapshots": "python3 scripts/rebuild-sqlite-snapshots.py",
     "sqlite:verify-db": "python3 scripts/verify-sqlite-db.py",
     "rebuild:monthly-snapshots": "node scripts/rebuild-monthly-snapshots.js",

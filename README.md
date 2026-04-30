@@ -145,6 +145,30 @@ npm run serve
 
 前端已移除線上 `項目匯入` / `項目匯出`，改成只保留 command line 流程。
 
+### 外幣版 CSV 範例
+
+若要先看外幣帳戶規劃中的 CSV 格式範例，可產生參考檔：
+
+```bash
+npm run sqlite:generate-fx-csv-examples -- \
+  --output-dir ./examples/foreign-currency-csv
+```
+
+會產生兩份範例：
+
+- `items-foreign-currency-example.csv`
+- `transactions-foreign-currency-example.csv`
+
+目前規劃中的欄位方向：
+
+- 項目 CSV
+  - 帳戶列新增 `幣別`
+  - 分類列的 `幣別` 保持空白
+- 交易 CSV
+  - 改成 `從金額` / `至金額`
+  - 本幣交易兩欄數值通常相同
+  - 涉及外幣帳戶時，兩欄可不同
+
 ### 匯出 SQLite 項目 CSV
 
 ```bash
