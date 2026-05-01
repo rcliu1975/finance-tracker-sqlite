@@ -280,3 +280,61 @@ bridge 對 browser request 會檢查 Origin；寫入 request body 必須使用 `
 - [SQLITE_QUICKSTART.md](SQLITE_QUICKSTART.md): SQLite 快速啟動筆記
 - [sqlite/README.md](sqlite/README.md): SQLite schema 與資料對照
 - [sqlite/firestore-mapping.md](sqlite/firestore-mapping.md): Firestore 到 SQLite 對照
+
+## scripts 補充索引
+
+日常操作優先使用 `npm run ...` wrapper；直接執行 `scripts/*` 主要用於除錯或需要繞過 npm 時。
+
+### SQLite 日常腳本
+
+| script | 建議指令 | 功能 | 基本用法 |
+| --- | --- | --- | --- |
+| `scripts/convert-legacy-import-csv.py` | `npm run sqlite:convert-legacy-csv -- ...` | 舊版項目 / 交易 CSV 轉新版外幣 CSV | `npm run sqlite:convert-legacy-csv -- --legacy-items-csv "$OLD_ITEMS" --legacy-transactions-csv "$OLD_RECORDS" --output-dir "$CONVERTED_DIR"` |
+| `scripts/generate-foreign-currency-csv-examples.py` | `npm run sqlite:generate-fx-csv-examples -- ...` | 產生新版外幣 CSV 範例 | `npm run sqlite:generate-fx-csv-examples -- --output-dir "$EXAMPLE_DIR"` |
+| `scripts/import-to-sqlite.py` | `npm run sqlite:import-csv -- ...` / `npm run sqlite:import-items -- ...` / `npm run sqlite:import-firestore -- ...` | 統一 SQLite 匯入入口，支援 `csv`、`items`、`firestore` | `npm run sqlite:import-csv -- --db "$DB" --items-csv items.csv --transactions-csv records.csv --replace` |
+| `scripts/rebuild-sqlite-snapshots.py` | `npm run sqlite:rebuild-snapshots -- ...` | 重建 SQLite `monthly_snapshots` | `npm run sqlite:rebuild-snapshots -- --db "$DB" --user-id local-user --apply` |
+| `scripts/verify-sqlite-db.py` | `npm run sqlite:verify-db -- ...` | 驗證 SQLite 筆數、外鍵與月結摘要 | `npm run sqlite:verify-db -- --db "$DB" --user-id local-user` |
+| `scripts/run-sqlite-frontend.py` | `npm run sqlite:frontend -- ...` | 產生前端設定、啟動 bridge、啟動 Web UI | `npm run sqlite:frontend -- --db "$DB" --user-id local-user --login-email you@example.com --login-password 'strong-password'` |
+| `scripts/sqlite-http-bridge.py` | `npm run sqlite:bridge -- ...` | 只啟動 SQLite HTTP bridge | `npm run sqlite:bridge -- --db "$DB" --user-id local-user --cors-origin http://127.0.0.1:5173 --login-email you@example.com --login-password 'strong-password'` |
+| `scripts/export-items-from-sqlite.py` | `npm run sqlite:export-items -- ...` | 匯出項目 CSV | `npm run sqlite:export-items -- --db "$DB" --output items.csv` |
+| `scripts/export-records-from-sqlite.py` | `npm run sqlite:export-records -- ...` | 匯出交易 CSV | `npm run sqlite:export-records -- --db "$DB" --output records.csv` |
+| `scripts/export-desktop-sidebar-matrix.py` | `npm run sqlite:export-sidebar-matrix -- ...` | 匯出桌面側欄月份矩陣 CSV | `npm run sqlite:export-sidebar-matrix -- --db "$DB" --output sidebar-matrix.csv` |
+| `scripts/export-sqlite-to-json.py` | `npm run sqlite:export-json -- ...` | 匯出前端 seed JSON，主要用於 fallback 測試 | `npm run sqlite:export-json -- --db "$DB" --output sqlite-seed.json` |
+
+### SQLite 內部 helper
+
+| script | 用途 | 使用建議 |
+| --- | --- | --- |
+| `scripts/import-csv-to-sqlite.py` | CSV 匯入的底層實作 | 建議改用 `npm run sqlite:import-csv -- ...` |
+| `scripts/import-items-to-sqlite.py` | 只匯入項目設定的底層實作 | 建議改用 `npm run sqlite:import-items -- ...` |
+| `scripts/export-firestore-to-sqlite.py` | Firestore 匯到 SQLite 的底層實作 | 建議改用 `npm run sqlite:import-firestore -- ...` |
+| `scripts/sqlite_migration_lib.py` | SQLite 遷移共用函式庫 | 不直接執行 |
+
+### 設定產生與本機 serve
+
+| script / 指令 | 功能 | 基本用法 |
+| --- | --- | --- |
+| `scripts/generate-app-config.js` | 讀取 `.env` 產生 `app-config.js` | `npm run config:generate` |
+| `scripts/generate-firebase-config.js` | 舊檔名相容 wrapper，產生 `firebase-config.js` | `node scripts/generate-firebase-config.js` |
+| `npm run serve` | 先產生設定，再以 `python3 -m http.server` 開前端 | `npm run serve` |
+
+### Firebase / Firestore 相容腳本
+
+這些不是 SQLite 日常主線；只有需要維護舊 Firebase 資料或部署 Firebase Hosting 時才使用。
+
+| script | 建議指令 | 功能 | 基本用法 |
+| --- | --- | --- | --- |
+| `scripts/import-records-cli.js` | `npm run import:records -- ...` | 將記錄 CSV 匯入 Firestore；預設 dry-run，`--apply` 才寫入 | `npm run import:records -- --csv records.csv --email you@example.com --production --apply` |
+| `scripts/rebuild-monthly-snapshots.js` | `npm run rebuild:monthly-snapshots -- ...` | 重建 Firestore `monthlySnapshots`；預設 dry-run | `npm run rebuild:monthly-snapshots -- --email you@example.com --production --from 2024-01 --apply` |
+| `scripts/cleanup-orphan-users.js` | `npm run cleanup:orphan-users` / `npm run cleanup:orphan-users:apply -- ...` | 找出 Auth 不存在但 Firestore 還存在的 `users/{uid}`；apply 模式會刪除 | `npm run cleanup:orphan-users:apply -- --confirm-project <projectId>` |
+| `scripts/deploy.sh` | `scripts/deploy.sh` | Unix-like Firebase Hosting 部署檢查與部署 | `bash scripts/deploy.sh` |
+| `scripts/deploy.ps1` | `scripts/deploy.ps1` | Windows PowerShell Firebase Hosting 部署檢查與部署 | `pwsh scripts/deploy.ps1` |
+
+### npm Firebase 指令
+
+| 指令 | 功能 |
+| --- | --- |
+| `npm run firebase:login` | 執行 Firebase CLI login |
+| `npm run firebase:emulators` | 產生設定後啟動 Auth / Firestore Emulator |
+| `npm run firebase:deploy` | 產生設定後部署 Firebase Hosting |
+| `npm run firebase:deploy:rules` | 部署 Firestore rules |
