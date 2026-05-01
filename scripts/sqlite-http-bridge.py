@@ -42,7 +42,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--login-email", default="", help="Enable UI login with this email.")
     parser.add_argument("--login-password", default="", help="Enable UI login with this password.")
     parser.add_argument("--session-ttl-seconds", type=int, default=43200, help="Bridge session token lifetime.")
+    parser.add_argument(
+        "--cors-origin",
+        action="append",
+        default=[],
+        help="Allowed browser origin for CORS. Repeat or use comma-separated values.",
+    )
     return parser.parse_args()
+
+
+def normalize_origin(value: str) -> str:
+    return str(value or "").strip().rstrip("/")
+
+
+def parse_allowed_origins(values: list[str]) -> set[str]:
+    origins: set[str] = set()
+    for value in values:
+        for part in str(value or "").split(","):
+            origin = normalize_origin(part)
+            if origin:
+                origins.add(origin)
+    return origins
 
 
 def settings_payload(row) -> dict:
@@ -901,7 +921,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        request_origin = normalize_origin(self.headers.get("Origin", ""))
+        if request_origin and request_origin in self.server.allowed_origins:
+            self.send_header("Access-Control-Allow-Origin", request_origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 
@@ -972,9 +995,12 @@ def main() -> int:
     server.session_ttl_seconds = int(args.session_ttl_seconds or 43200)
     server.sessions = {}
     server.failed_login_attempts = {}
+    server.allowed_origins = parse_allowed_origins(args.cors_origin)
     print(f"SQLite bridge listening on http://{args.host}:{args.port} user_id={args.user_id} db={db_path}")
     if server.login_email and server.login_password:
         print(f"SQLite bridge login enabled for {server.login_email}")
+    if server.allowed_origins:
+        print(f"CORS origins: {', '.join(sorted(server.allowed_origins))}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

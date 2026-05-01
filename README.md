@@ -88,6 +88,17 @@ npm run sqlite:import-csv -- \
 npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
 ```
 
+這個驗證現在也會列出最近幾個月的驗帳摘要：
+
+- `netWorthDelta`
+- `operatingDelta`
+- `fxValuationDelta`
+
+目前口徑是：
+
+- `netWorthDelta = income_total - expense_total + fxValuationDelta`
+- `fxValuationDelta` 只代表外幣月底估值變動，不納入正式損益
+
 如果要重建 SQLite 版月快照：
 
 ```bash
@@ -136,10 +147,13 @@ npm run sqlite:frontend -- \
 ```bash
 npm run sqlite:bridge -- \
   --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
+  --user-id local-user \
+  --cors-origin http://127.0.0.1:5173
 
 npm run serve
 ```
+
+如果你不是用 `sqlite:frontend`，而是手動開 bridge，請自行把前端來源加進 `--cors-origin`。否則瀏覽器會擋掉跨來源請求。
 
 ## Command line 項目匯入 / 匯出
 
@@ -197,6 +211,7 @@ npm run sqlite:convert-legacy-csv -- \
 - 新建立的 SQLite 資料庫會直接使用外幣版欄位
 - CLI 匯入匯出已能讀寫這套欄位
 - bridge / seed JSON 匯出也已會帶出 `currency`、`fromAmount`、`toAmount` 與 snapshot 估值欄位
+- 匯差目前只用在外幣帳戶月底估值，不納入 `income_total`、`expense_total` 或正式損益欄位
 
 ### 匯出 SQLite 項目 CSV
 

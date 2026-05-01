@@ -128,6 +128,8 @@ def main() -> int:
                 args.bridge_host,
                 "--port",
                 str(args.bridge_port),
+                "--cors-origin",
+                frontend_url := f"http://{args.open_host}:{args.serve_port}",
                 "--login-email",
                 args.login_email,
                 "--login-password",
@@ -149,7 +151,6 @@ def main() -> int:
             cwd=repo_root,
         )
 
-        frontend_url = f"http://{args.open_host}:{args.serve_port}"
         bridge_url = f"http://{args.open_host}:{args.bridge_port}"
         print(f"SQLite bridge: {bridge_url}", flush=True)
         print(f"Frontend: {frontend_url}", flush=True)
