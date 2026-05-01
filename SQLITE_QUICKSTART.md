@@ -30,21 +30,30 @@ npm run sqlite:frontend -- \
 2. 啟動 SQLite HTTP bridge
 3. 啟動前端靜態 server
 
-如果你要讓外網 UI 用 Email / password 登入：
+如果你要讓外部透過單一 Cloudflared tunnel 連入，建議改用 same-origin reverse proxy：
 
 ```bash
 npm run sqlite:frontend -- \
   --db ~/finance-tracker-sqlite-test.db \
   --user-id local-user \
-  --bridge-host 0.0.0.0 \
-  --serve-host 0.0.0.0 \
-  --open-host your-public-host \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online
+```
+
+再用 Caddy 或 nginx 在 `127.0.0.1:8080` 代理：
+
+- `/` -> `127.0.0.1:5173`
+- `/bridge/` -> `127.0.0.1:8765`
+
+最後讓 Cloudflared tunnel 指到 `http://127.0.0.1:8080`。完整範例請看 [README.md](README.md) 第 4 節。
+
+如果外層沒有 Cloudflare Access 或其他保護，再補上：
+
+```bash
   --login-email you@example.com \
   --login-password 'strong-password'
 ```
-
-這時前端會顯示登入表單，bridge API 也會要求 Bearer session token。
-這條模式目前是既有帳號登入，不提供前端自助註冊。
 
 ## 3. 分開控制 bridge 與前端
 
@@ -66,17 +75,10 @@ APP_SQLITE_API_BASE_URL=http://127.0.0.1:8765
 APP_SQLITE_SEED_PATH=
 ```
 
-## 4. 區網或其他裝置連線
+## 4. Cloudflared tunnel
 
 ```bash
-npm run sqlite:frontend -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user \
-  --bridge-host 0.0.0.0 \
-  --serve-host 0.0.0.0 \
-  --open-host 192.168.1.10 \
-  --login-email you@example.com \
-  --login-password 'strong-password'
+cloudflared tunnel run <your-tunnel-name>
 ```
 
 ## 5. 常用 SQLite CLI
@@ -88,6 +90,8 @@ npm run sqlite:export-items -- --db ~/finance-tracker-sqlite-test.db --output ~/
 npm run sqlite:export-records -- --db ~/finance-tracker-sqlite-test.db --output ~/records-export.csv
 npm run sqlite:export-sidebar-matrix -- --db ~/finance-tracker-sqlite-test.db --output ~/desktop-sidebar-matrix.csv
 ```
+
+`sqlite:import-csv` 與 `sqlite:rebuild-snapshots` 都會使用同一套 snapshot builder。現在 `income_total` / `expense_total` 只代表一般收入 / 支出；業外收入 / 支出仍保留在各分類 totals。
 
 ## 6. SQLite seed fallback
 

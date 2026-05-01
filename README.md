@@ -68,6 +68,11 @@ npm run sqlite:import-csv -- \
 ```
 
 `sqlite:import-csv` 會建立 / 更新 SQLite database，匯入項目與交易，並自動重建 `monthly_snapshots`。
+重建後：
+
+- `income_total` 只代表一般 `income`
+- `expense_total` 只代表一般 `expense`
+- `nonOperatingIncome` / `nonOperatingExpense` 會保留在 `category_totals_json`，由 UI 與匯出工具依分類型別分開加總
 
 匯入後建議驗證一次：
 
@@ -82,16 +87,17 @@ npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 - 不使用 `--replace` 時，如果該 user 已有 transaction，匯入會拒絕，避免重複灌資料。
 - 可選的 `--user-email` / `--display-name` 只會寫入 SQLite user metadata，和 UI 登入無關。
 
-### 4. 給 Tailscale / Cloudflared 使用的啟動方式
+### 4. 給 Cloudflared 使用的啟動方式
 
-如果只是本機使用，可以只綁在 `127.0.0.1`：
+這一節改成預設用「單一 Cloudflared tunnel + 同一個公開 origin」連入，例如 `https://www.kennylab.online`：
 
 ```bash
 npm run sqlite:frontend -- \
   --db "$DB" \
   --user-id local-user \
-  --login-email you@example.com \
-  --login-password 'strong-password'
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online
 ```
 
 這個指令會：
@@ -100,33 +106,146 @@ npm run sqlite:frontend -- \
 2. 啟動 SQLite HTTP bridge
 3. 啟動前端靜態 server
 
-預設開啟：
+本機會開：
 
 - Frontend: `http://127.0.0.1:5173`
 - SQLite bridge: `http://127.0.0.1:8765`
 
+前端 `app-config.js` 會使用：
+
+```text
+APP_SQLITE_API_BASE_URL=https://www.kennylab.online/bridge
+```
+
+也就是 browser 讀 `index.html` 與呼叫 SQLite bridge，都走同一個公開 origin。
+
 按 `Ctrl+C` 可同時停止 bridge 與前端 server。
 
-如果要透過 Tailscale、Cloudflared 或同網段其他裝置連 UI，前端 server 與 bridge 都要綁到外部位址，並用 `--open-host` 指定瀏覽器實際會連到的 hostname 或 IP：
+#### 架構
+
+```text
+Browser
+  -> https://www.kennylab.online
+  -> Cloudflared tunnel
+  -> 本機 reverse proxy（Caddy 或 nginx，假設 listen 127.0.0.1:8080）
+     -> /        轉給 http://127.0.0.1:5173
+     -> /bridge/ 轉給 http://127.0.0.1:8765
+```
+
+這個做法的重點：
+
+- 外部只看到一個 hostname：`www.kennylab.online`
+- 不需要把 `5173` 或 `8765` 直接暴露到外網
+- browser 端是 same-origin，通常不需要額外處理 CORS
+- 如果外層已有 Cloudflare Access 或其他存取控制，可以不開 bridge 內建 email/password
+
+#### Cloudflared 設定
+
+`~/.cloudflared/config.yml`：
+
+```yaml
+tunnel: <your-tunnel-id>
+credentials-file: /home/<user>/.cloudflared/<your-tunnel-id>.json
+
+ingress:
+  - hostname: www.kennylab.online
+    service: http://127.0.0.1:8080
+  - service: http_status:404
+```
+
+啟動：
+
+```bash
+cloudflared tunnel run <your-tunnel-name>
+```
+
+#### Caddyfile 範例
+
+`Caddyfile`：
+
+```caddy
+:8080 {
+  handle_path /bridge/* {
+    reverse_proxy 127.0.0.1:8765
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:5173
+  }
+}
+```
+
+啟動 Caddy：
+
+```bash
+caddy run --config /path/to/Caddyfile
+```
+
+`handle_path /bridge/*` 會把 `/bridge` 前綴剝掉，所以 SQLite bridge 實際收到的是 `/session/config`、`/health` 這種原本就支援的路徑。
+
+#### nginx 範例
+
+如果你不用 Caddy，也可以用 nginx：
+
+```nginx
+server {
+    listen 127.0.0.1:8080;
+    server_name www.kennylab.online;
+
+    location /bridge/ {
+        proxy_pass http://127.0.0.1:8765/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Origin $scheme://$host;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5173/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+這裡 `proxy_pass http://127.0.0.1:8765/;` 尾端要保留 `/`，才能把 `/bridge/xxx` 正確轉成 bridge 端的 `/xxx`。
+
+#### 啟用順序
+
+1. 啟動 SQLite 前端與 bridge：
 
 ```bash
 npm run sqlite:frontend -- \
   --db "$DB" \
   --user-id local-user \
-  --bridge-host 0.0.0.0 \
-  --serve-host 0.0.0.0 \
-  --open-host 192.168.1.10 \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online
+```
+
+2. 啟動 Caddy 或 nginx，讓 `127.0.0.1:8080` 同時代理前端與 `/bridge/`
+3. 啟動 `cloudflared tunnel run <your-tunnel-name>`
+4. 從外部打開 `https://www.kennylab.online`
+
+#### 什麼時候要加 bridge 內建登入
+
+如果你沒有 Cloudflare Access、反向代理 Basic Auth、Tailscale Funnel ACL 或其他等價保護，建議仍然開 bridge 內建登入：
+
+```bash
+npm run sqlite:frontend -- \
+  --db "$DB" \
+  --user-id local-user \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online \
   --login-email you@example.com \
   --login-password 'strong-password'
 ```
 
-`--open-host` 範例：
-
-- Tailscale：`100.x.y.z` 或你的 tailnet hostname
-- Cloudflared：對外公開的 hostname
-- 區網：例如 `192.168.1.10`
-
-這個 email / password 是 SQLite bridge 的 UI 登入保護，不是前端註冊帳號。對外開放前請使用強密碼，並優先放在 Tailscale 或 Cloudflared Access 這類額外保護後面。
+這個 email / password 是 SQLite bridge 的 UI 登入保護，不是前端註冊帳號。對外開放前請使用強密碼，並優先放在 Cloudflare Access 或其他外層保護後面。
 
 ### 5. 登入 UI 開始使用
 
@@ -160,6 +279,8 @@ npm run sqlite:rebuild-snapshots -- \
 ```bash
 npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 ```
+
+這個重建流程會重新寫入整段 `monthly_snapshots`。目前 `income_total` / `expense_total` 只對應一般收入 / 支出；業外項目請看 `categoryTotals` 或 UI 的 `業外收入` / `業外支出` 群組。
 
 ### 7. 經常匯出 CSV 備份
 
@@ -268,6 +389,8 @@ npm run sqlite:bridge -- \
 ```
 
 bridge 對 browser request 會檢查 Origin；寫入 request body 必須使用 `Content-Type: application/json`。
+
+CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰有權限操作資料」。如果你用反向代理把前端與 bridge 合成同一個對外 origin，browser 端甚至不需要 CORS；但 bridge API 仍然是公開的 HTTP 入口，是否需要 bridge 內建登入，取決於外層是否已經有足夠的存取控制。
 
 ## 專案檔案
 
