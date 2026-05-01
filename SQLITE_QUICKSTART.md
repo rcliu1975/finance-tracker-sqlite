@@ -14,12 +14,14 @@ npm run sqlite:import-csv -- \
 
 ## 2. 啟動前端
 
-最簡單的方式：
+SQLite UI 啟動時一定要指定登入帳密。最簡單的方式：
 
 ```bash
 npm run sqlite:frontend -- \
   --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
+  --user-id local-user \
+  --login-email you@example.com \
+  --login-password 'strong-password'
 ```
 
 這個指令會：
@@ -49,7 +51,8 @@ npm run sqlite:frontend -- \
 ```bash
 npm run sqlite:bridge -- \
   --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
+  --user-id local-user \
+  --cors-origin http://127.0.0.1:5173
 
 npm run serve
 ```
@@ -71,7 +74,9 @@ npm run sqlite:frontend -- \
   --user-id local-user \
   --bridge-host 0.0.0.0 \
   --serve-host 0.0.0.0 \
-  --open-host 192.168.1.10
+  --open-host 192.168.1.10 \
+  --login-email you@example.com \
+  --login-password 'strong-password'
 ```
 
 ## 5. 常用 SQLite CLI

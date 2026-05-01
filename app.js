@@ -998,7 +998,7 @@ async function handleEmailAuth(event) {
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "");
   if (action === "register" && !appRuntime.supportsCredentialRegistration) {
-    $("sessionStatus").textContent = "註冊未啟用";
+    $("sessionStatus").textContent = "只開放登入";
     $("sessionError").textContent = "目前這個 SQLite bridge 只開放既有帳號登入。";
     return;
   }
@@ -1029,7 +1029,9 @@ function formatAuthError(action, error) {
     "auth/invalid-email": "Email 格式不正確。",
     "auth/missing-password": "請輸入密碼。",
     "auth/weak-password": "密碼至少需要 6 個字元。",
-    "auth/user-not-found": "找不到這個帳號，請先註冊。",
+    "auth/user-not-found": appRuntime.supportsCredentialRegistration
+      ? "找不到這個帳號，請先註冊。"
+      : "找不到這個帳號，請確認 sqlite:frontend 啟動時指定的 Email。",
     "auth/wrong-password": "密碼不正確。",
     "auth/network-request-failed": "網路連線失敗，請稍後再試。",
     "auth/too-many-requests": "嘗試次數過多，請稍後再試。"

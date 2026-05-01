@@ -97,6 +97,8 @@ def main() -> int:
     db_path = Path(args.db).expanduser().resolve()
     if not db_path.exists():
         raise FileNotFoundError(f"找不到 SQLite 資料庫：{db_path}")
+    if not str(args.login_email or "").strip() or not str(args.login_password or ""):
+        raise ValueError("sqlite:frontend 啟動時必須同時指定 --login-email 與 --login-password。")
 
     temp_env_path = write_temp_env(args)
     bridge_process: subprocess.Popen[bytes] | None = None

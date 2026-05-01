@@ -59,6 +59,6 @@
 
 ### 3. 安全
 
-1. `sqlite-http-bridge` 已支援 `--cors-origin` allowlist，需補前端 / 部署設定上的預設值檢查
+1. `sqlite-http-bridge` 已支援 `--cors-origin` allowlist；手動 `sqlite:bridge` 流程仍需維持明確設定
 2. bridge session token 已改成瀏覽器 `sessionStorage`；若前端出現 XSS 仍可被讀取
 3. 前端仍大量依賴 `innerHTML`，需逐步縮小高頻可寫區塊

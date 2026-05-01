@@ -131,7 +131,9 @@ npm run sqlite:export-json -- \
 ```bash
 npm run sqlite:frontend -- \
   --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
+  --user-id local-user \
+  --login-email you@example.com \
+  --login-password 'strong-password'
 ```
 
 這支腳本會做三件事：
@@ -139,6 +141,8 @@ npm run sqlite:frontend -- \
 1. 產生 `app-config.js`
 2. 啟動 `sqlite-http-bridge.py`
 3. 啟動前端靜態 server
+
+SQLite UI 啟動時一定要指定 `--login-email` 與 `--login-password`。這兩個參數只用在 UI 登入點，不提供前端自助註冊。
 
 按 `Ctrl+C` 會一起停止 bridge 與前端 server。
 
@@ -426,7 +430,8 @@ npm run serve
 - 前端會直接透過 HTTP bridge 讀寫 SQLite `.db`
 - `commonSummaries` 也會直接寫回 SQLite
 - 不走 Firebase Authentication
-- 會以單一本機使用者進入 app
+- 會透過 SQLite bridge 的既有帳號登入 UI
+- SQLite `.db` 內資料仍以指定的 `user-id` 為資料歸屬
 - 需要 bridge 行程持續運作
 
 bridge 額外提供的管理 API：
@@ -454,7 +459,9 @@ npm run sqlite:frontend -- \
   --user-id local-user \
   --bridge-host 0.0.0.0 \
   --serve-host 0.0.0.0 \
-  --open-host 192.168.1.10
+  --open-host 192.168.1.10 \
+  --login-email you@example.com \
+  --login-password 'strong-password'
 ```
 
 說明：
