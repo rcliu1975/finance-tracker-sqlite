@@ -61,8 +61,8 @@ npm run sqlite:generate-fx-csv-examples -- \
 ```bash
 npm run sqlite:import-csv -- \
   --db "$DB" \
-  --items-csv "～/items-foreign-currency-import.csv" \
-  --transactions-csv "～/transactions-foreign-currency-import.csv" \
+  --items-csv "~/items-foreign-currency-import.csv" \
+  --transactions-csv "~/transactions-foreign-currency-import.csv" \
   --user-id local-user \
   --user-email you@example.com \
   --display-name "Local User" \
