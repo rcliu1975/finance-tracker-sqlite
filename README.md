@@ -69,18 +69,28 @@ npm run sqlite:import-csv -- \
 
 `sqlite:import-csv` 會建立 / 更新 SQLite database，匯入項目與交易，並自動重建 `monthly_snapshots`。
 
-匯入後建議驗證一次：
-
-```bash
-npm run sqlite:verify-db -- --db "$DB" --user-id local-user
-```
-
 注意：
 
 - `--db` 建議放在 repo 外面，不要把私人 `.db` commit 進 repo。
 - `--replace` 會覆蓋既有 database。
 - 不使用 `--replace` 時，如果該 user 已有 transaction，匯入會拒絕，避免重複灌資料。
 - 可選的 `--user-email` / `--display-name` 只會寫入 SQLite user metadata，和 UI 登入無關。
+
+匯入後建議驗證一次：
+
+```bash
+npm run sqlite:verify-db -- --db "$DB" --user-id local-user
+```
+
+sqlite:verify-db 的作用是「粗略健康檢查」，不是完整會計審核。主要確認：
+
+  - foreign_key_check: ok：這是最重要的結構檢查，代表外鍵關聯沒有壞。
+  - SQLite 檔案能正常打開。
+  - 主要資料表筆數合理。如: accounts: 51、categories: 27、transactions: 22673、monthly_snapshots: 201。
+  - PRAGMA foreign_key_check 沒有外鍵錯誤。
+  - 指定 user 存在。PS: 匯入時沒有給 --user-email，email 會是空白，這不影響 UI 登入。
+  - reconciliation: 最近 6 個月 snapshot 的淨值變動是否能用「收支 + 外幣估值變動」對上。有沒有出現奇怪的 fxValuationDelta 大跳動。
+  - sample transactions: 抽樣印出前 3 筆交易，方便肉眼確認日期、金額欄位有沒有明顯錯位。
 
 ### 4. 給 Tailscale / Cloudflared 使用的啟動方式
 
