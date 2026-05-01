@@ -83,7 +83,9 @@ npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 - `--replace` 會覆蓋既有 database。
 - 不使用 `--replace` 時，如果該 user 已有 transaction，匯入會拒絕，避免重複灌資料。
 
-### 4. 給定 email / password 啟動 server
+### 4. 給 Tailscale / Cloudflared 使用的啟動方式
+
+如果只是本機使用，可以只綁在 `127.0.0.1`：
 
 ```bash
 npm run sqlite:frontend -- \
@@ -106,7 +108,7 @@ npm run sqlite:frontend -- \
 
 按 `Ctrl+C` 可同時停止 bridge 與前端 server。
 
-若要讓同網段其他裝置連線：
+如果要透過 Tailscale、Cloudflared 或同網段其他裝置連 UI，前端 server 與 bridge 都要綁到外部位址，並用 `--open-host` 指定瀏覽器實際會連到的 hostname 或 IP：
 
 ```bash
 npm run sqlite:frontend -- \
@@ -119,7 +121,13 @@ npm run sqlite:frontend -- \
   --login-password 'strong-password'
 ```
 
-`--open-host` 要填其他裝置能連到這台機器的 IP 或 hostname。
+`--open-host` 範例：
+
+- Tailscale：`100.x.y.z` 或你的 tailnet hostname
+- Cloudflared：對外公開的 hostname
+- 區網：例如 `192.168.1.10`
+
+這個 email / password 是 SQLite bridge 的 UI 登入保護，不是前端註冊帳號。對外開放前請使用強密碼，並優先放在 Tailscale 或 Cloudflared Access 這類額外保護後面。
 
 ### 5. 登入 UI 開始使用
 
@@ -228,7 +236,6 @@ npm run sqlite:export-sidebar-matrix -- \
 | `npm run sqlite:convert-legacy-csv -- ...` | 舊版項目 / 交易 CSV 轉新版外幣格式 |
 | `npm run sqlite:generate-fx-csv-examples -- ...` | 產生新版 CSV 範例 |
 | `npm run sqlite:import-csv -- ...` | 匯入項目與交易 CSV 到 SQLite |
-| `npm run sqlite:import-items -- ...` | 只匯入項目設定到既有 SQLite |
 | `npm run sqlite:verify-db -- ...` | 驗證 SQLite 筆數、外鍵與月結摘要 |
 | `npm run sqlite:rebuild-snapshots -- ...` | 重建 `monthly_snapshots` |
 | `npm run sqlite:frontend -- ...` | 產生設定、啟動 bridge、啟動 Web UI |
@@ -292,7 +299,7 @@ bridge 對 browser request 會檢查 Origin；寫入 request body 必須使用 `
 | --- | --- | --- | --- |
 | `scripts/convert-legacy-import-csv.py` | `npm run sqlite:convert-legacy-csv -- ...` | 舊版項目 / 交易 CSV 轉新版外幣 CSV | `npm run sqlite:convert-legacy-csv -- --legacy-items-csv "$OLD_ITEMS" --legacy-transactions-csv "$OLD_RECORDS" --output-dir "$CONVERTED_DIR"` |
 | `scripts/generate-foreign-currency-csv-examples.py` | `npm run sqlite:generate-fx-csv-examples -- ...` | 產生新版外幣 CSV 範例 | `npm run sqlite:generate-fx-csv-examples -- --output-dir "$EXAMPLE_DIR"` |
-| `scripts/import-to-sqlite.py` | `npm run sqlite:import-csv -- ...` / `npm run sqlite:import-items -- ...` / `npm run sqlite:import-firestore -- ...` | 統一 SQLite 匯入入口，支援 `csv`、`items`、`firestore` | `npm run sqlite:import-csv -- --db "$DB" --items-csv items.csv --transactions-csv records.csv --replace` |
+| `scripts/import-to-sqlite.py` | `npm run sqlite:import-csv -- ...` / `npm run sqlite:import-firestore -- ...` | 統一 SQLite 匯入入口，日常使用 `csv` 匯入完整項目與交易 | `npm run sqlite:import-csv -- --db "$DB" --items-csv items.csv --transactions-csv records.csv --replace` |
 | `scripts/rebuild-sqlite-snapshots.py` | `npm run sqlite:rebuild-snapshots -- ...` | 重建 SQLite `monthly_snapshots` | `npm run sqlite:rebuild-snapshots -- --db "$DB" --user-id local-user --apply` |
 | `scripts/verify-sqlite-db.py` | `npm run sqlite:verify-db -- ...` | 驗證 SQLite 筆數、外鍵與月結摘要 | `npm run sqlite:verify-db -- --db "$DB" --user-id local-user` |
 | `scripts/run-sqlite-frontend.py` | `npm run sqlite:frontend -- ...` | 產生前端設定、啟動 bridge、啟動 Web UI | `npm run sqlite:frontend -- --db "$DB" --user-id local-user --login-email you@example.com --login-password 'strong-password'` |
@@ -307,7 +314,7 @@ bridge 對 browser request 會檢查 Origin；寫入 request body 必須使用 `
 | script | 用途 | 使用建議 |
 | --- | --- | --- |
 | `scripts/import-csv-to-sqlite.py` | CSV 匯入的底層實作 | 建議改用 `npm run sqlite:import-csv -- ...` |
-| `scripts/import-items-to-sqlite.py` | 只匯入項目設定的底層實作 | 建議改用 `npm run sqlite:import-items -- ...` |
+| `scripts/import-items-to-sqlite.py` | 只匯入項目設定的底層實作 | 日常流程不使用；保留給遷移除錯 |
 | `scripts/export-firestore-to-sqlite.py` | Firestore 匯到 SQLite 的底層實作 | 建議改用 `npm run sqlite:import-firestore -- ...` |
 | `scripts/sqlite_migration_lib.py` | SQLite 遷移共用函式庫 | 不直接執行 |
 

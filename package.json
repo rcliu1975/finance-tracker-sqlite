@@ -8,7 +8,6 @@
     "sqlite:import": "python3 scripts/import-to-sqlite.py",
     "sqlite:import-firestore": "python3 scripts/import-to-sqlite.py firestore",
     "sqlite:import-csv": "python3 scripts/import-to-sqlite.py csv",
-    "sqlite:import-items": "python3 scripts/import-to-sqlite.py items",
     "sqlite:bridge": "python3 scripts/sqlite-http-bridge.py",
     "sqlite:frontend": "python3 scripts/run-sqlite-frontend.py",
     "sqlite:export-json": "python3 scripts/export-sqlite-to-json.py",
