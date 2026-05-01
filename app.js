@@ -2586,9 +2586,9 @@ function populateDesktopYearOptions() {
   const currentValue = String(select.value || "").trim();
   const options = [];
   for (let year = maxYear; year >= minYear; year -= 1) {
-    options.push(`<option value="${year}">${year}</option>`);
+    options.push({ value: String(year), label: String(year) });
   }
-  select.innerHTML = options.join("");
+  replaceSelectOptions(select, options);
   if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
     select.value = currentValue;
   }
@@ -2817,9 +2817,6 @@ function renderTransactionRangeFilter() {
 }
 
 function renderOptions() {
-  const accountOptions = state.accounts
-    .map((account) => `<option value="${escapeAttr(account.id)}">${escapeHtml(account.name)}</option>`)
-    .join("");
   renderSourceTypeOptions();
   renderSourceItemOptions();
   renderDestinationTypeOptions();
@@ -2835,10 +2832,34 @@ function renderOptions() {
   setTodayDefault();
 }
 
+function buildOptionNode(value, label) {
+  const option = document.createElement("option");
+  option.value = String(value ?? "");
+  option.textContent = String(label ?? "");
+  return option;
+}
+
+function replaceSelectOptions(select, options, { emptyLabel = "" } = {}) {
+  const fragment = document.createDocumentFragment();
+  if (options.length) {
+    options.forEach((option) => {
+      fragment.appendChild(buildOptionNode(option.value, option.label));
+    });
+  } else if (emptyLabel) {
+    fragment.appendChild(buildOptionNode("", emptyLabel));
+  }
+  select.replaceChildren(fragment);
+}
+
 function renderCommonSummaryOptions() {
-  $("commonSummaryList").innerHTML = getCommonSummaries(getActiveSummaryScopeKey())
-    .map((summary) => `<option value="${escapeAttr(summary)}"></option>`)
-    .join("");
+  const datalist = $("commonSummaryList");
+  datalist.replaceChildren(
+    ...getCommonSummaries(getActiveSummaryScopeKey()).map((summary) => {
+      const option = document.createElement("option");
+      option.value = String(summary || "");
+      return option;
+    })
+  );
   renderSummaryMenu("desktopSummaryInput", "desktopSummaryMenu", "desktop");
   renderSummaryMenu("mobileSummaryInput", "mobileSummaryMenu", "mobile");
   updateSaveSummaryButtons();
@@ -2921,9 +2942,15 @@ function hideSummaryMenus() {
 function renderSummaryMenu(inputId, menuId, formKind) {
   const menu = $(menuId);
   const scopeKey = getSummaryScopeKey(formKind);
-  menu.innerHTML = getCommonSummaries(scopeKey)
-    .map((summary) => `<button type="button" data-summary="${escapeAttr(summary)}">${escapeHtml(summary)}</button>`)
-    .join("");
+  const fragment = document.createDocumentFragment();
+  getCommonSummaries(scopeKey).forEach((summary) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.summary = String(summary || "");
+    button.textContent = String(summary || "");
+    fragment.appendChild(button);
+  });
+  menu.replaceChildren(fragment);
   menu.querySelectorAll("[data-summary]").forEach((button) => {
     button.addEventListener("click", () => {
       $(inputId).value = button.dataset.summary || "";
@@ -2952,12 +2979,17 @@ function renderCommonSummaryFields() {
   const summaries = getCommonSummaries(scopeKey);
   const scopeLabel = getSummaryScopeLabel(scopeKey);
   $("commonSummaryTitle").textContent = `編輯常用摘要 - ${scopeLabel}`;
-  $("commonSummaryFields").innerHTML = Array.from({ length: 6 }, (_, index) => {
-    return `<label>
-      ${escapeHtml(scopeLabel)} 常用摘要 ${index + 1}
-      <input name="summary" value="${escapeAttr(summaries[index] || "")}" />
-    </label>`;
-  }).join("");
+  const fragment = document.createDocumentFragment();
+  Array.from({ length: 6 }, (_, index) => {
+    const label = document.createElement("label");
+    label.append(`${scopeLabel} 常用摘要 ${index + 1}`);
+    const input = document.createElement("input");
+    input.name = "summary";
+    input.value = String(summaries[index] || "");
+    label.appendChild(input);
+    fragment.appendChild(label);
+  });
+  $("commonSummaryFields").replaceChildren(fragment);
 }
 
 function saveCommonSummaryForm(event) {
@@ -3049,7 +3081,10 @@ function renderDesktopSourceTypeOptions() {
 function renderTransactionTypeOptions(selectId, selectedValue, options) {
   const select = $(selectId);
   const previousValue = select.value || selectedValue;
-  select.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join("");
+  replaceSelectOptions(
+    select,
+    options.map((option) => ({ value: option.value, label: option.label }))
+  );
 
   const nextValue = options.some((option) => option.value === previousValue) ? previousValue : options[0].value;
   select.value = nextValue;
@@ -3073,13 +3108,13 @@ function renderSourceItemOptionsFor(typeSelectId, itemSelectId) {
       ? state.categories
           .filter((category) => category.type === accountType)
           .sort(sortItemsByOrder)
-          .map((category) => `<option value="${escapeAttr(`category:${category.id}`)}">${escapeHtml(category.name)}</option>`)
+          .map((category) => ({ value: `category:${category.id}`, label: category.name }))
       : state.accounts
           .filter((account) => inferAccountType(account) === accountType)
           .sort(sortItemsByOrder)
-          .map((account) => `<option value="${escapeAttr(`account:${account.id}`)}">${escapeHtml(account.name)}</option>`);
+          .map((account) => ({ value: `account:${account.id}`, label: account.name }));
 
-  sourceSelect.innerHTML = options.length ? options.join("") : '<option value="">沒有可選項目</option>';
+  replaceSelectOptions(sourceSelect, options, { emptyLabel: "沒有可選項目" });
   if (previousValue && Array.from(sourceSelect.options).some((option) => option.value === previousValue)) {
     sourceSelect.value = previousValue;
   }
@@ -3121,13 +3156,13 @@ function renderDestinationItemOptionsFor(typeSelectId, itemSelectId, selectedTyp
       ? state.categories
           .filter((category) => category.type === destinationType)
           .sort(sortItemsByOrder)
-          .map((category) => `<option value="${escapeAttr(`category:${category.id}`)}">${escapeHtml(category.name)}</option>`)
+          .map((category) => ({ value: `category:${category.id}`, label: category.name }))
       : state.accounts
           .filter((account) => inferAccountType(account) === destinationType)
           .sort(sortItemsByOrder)
-          .map((account) => `<option value="${escapeAttr(`account:${account.id}`)}">${escapeHtml(account.name)}</option>`);
+          .map((account) => ({ value: `account:${account.id}`, label: account.name }));
 
-  destinationSelect.innerHTML = options.length ? options.join("") : '<option value="">沒有可選項目</option>';
+  replaceSelectOptions(destinationSelect, options, { emptyLabel: "沒有可選項目" });
   if (previousValue && Array.from(destinationSelect.options).some((option) => option.value === previousValue)) {
     destinationSelect.value = previousValue;
   }
@@ -3852,7 +3887,14 @@ function setReadonlyTransactionRowSelected(mode, transactionId, selected) {
 function updateDesktopEditableItemOptions(row, prefix) {
   const type = row.querySelector(`[name="${prefix}Type"]`).value;
   const itemSelect = row.querySelector(`[name="${prefix}Id"]`);
-  itemSelect.innerHTML = renderTransactionItemOptions(type);
+  replaceSelectOptions(
+    itemSelect,
+    getTransactionItemsByType(type).map((item) => ({
+      value: `${item.kind}:${item.id}`,
+      label: item.name
+    })),
+    { emptyLabel: "沒有可選項目" }
+  );
 }
 
 function updateDesktopEditableTypePreview(row) {
