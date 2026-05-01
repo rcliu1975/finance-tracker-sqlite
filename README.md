@@ -64,8 +64,6 @@ npm run sqlite:import-csv -- \
   --items-csv "~/items-foreign-currency-import.csv" \
   --transactions-csv "~/transactions-foreign-currency-import.csv" \
   --user-id local-user \
-  --user-email you@example.com \
-  --display-name "Local User" \
   --replace
 ```
 
@@ -82,6 +80,7 @@ npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 - `--db` 建議放在 repo 外面，不要把私人 `.db` commit 進 repo。
 - `--replace` 會覆蓋既有 database。
 - 不使用 `--replace` 時，如果該 user 已有 transaction，匯入會拒絕，避免重複灌資料。
+- 可選的 `--user-email` / `--display-name` 只會寫入 SQLite user metadata，和 UI 登入無關。
 
 ### 4. 給 Tailscale / Cloudflared 使用的啟動方式
 
