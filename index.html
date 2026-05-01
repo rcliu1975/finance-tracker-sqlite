@@ -92,7 +92,7 @@
               <button id="desktopModalCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
             </div>
             <form id="desktopTransactionForm" class="desktop-transaction-form">
-              <label class="desktop-half-field">
+              <label id="desktopSingleAmountField" class="desktop-half-field">
                 日期
                 <input type="date" name="date" required />
               </label>
@@ -287,7 +287,7 @@
               日期
               <input type="date" name="date" required />
             </label>
-            <label class="tablet-half tablet-one-third">
+            <label id="mobileSingleAmountField" class="tablet-half tablet-one-third">
               從項目
               <div class="split-field">
                 <select name="sourceType" id="sourceTypeSelect" required></select>

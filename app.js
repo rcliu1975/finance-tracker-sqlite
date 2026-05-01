@@ -1211,6 +1211,7 @@ function getTransactionFormMode(formKind = "mobile") {
 function syncTransactionAmountFields(formKind = "mobile", preserveValues = true) {
   const formId = formKind === "desktop" ? "desktopTransactionForm" : "transactionForm";
   const singleAmountLabelId = formKind === "desktop" ? "desktopSingleAmountLabel" : "mobileSingleAmountLabel";
+  const singleAmountFieldId = formKind === "desktop" ? "desktopSingleAmountField" : "mobileSingleAmountField";
   const fromFieldId = formKind === "desktop" ? "desktopFromAmountField" : "mobileFromAmountField";
   const toFieldId = formKind === "desktop" ? "desktopToAmountField" : "mobileToAmountField";
   const form = $(formId);
@@ -1222,6 +1223,7 @@ function syncTransactionAmountFields(formKind = "mobile", preserveValues = true)
   const fromAmountInput = form.elements.fromAmount;
   const toAmountInput = form.elements.toAmount;
   const singleAmountLabel = $(singleAmountLabelId);
+  $(singleAmountFieldId)?.classList.toggle("hidden", mode.usesSplitAmounts);
   $(fromFieldId)?.classList.toggle("hidden", !mode.usesSplitAmounts);
   $(toFieldId)?.classList.toggle("hidden", !mode.usesSplitAmounts);
   if (singleAmountLabel) {
