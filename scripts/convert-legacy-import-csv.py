@@ -5,7 +5,7 @@ import argparse
 import csv
 from pathlib import Path
 
-from sqlite_migration_lib import ITEM_TYPE_MAP, normalize_header, read_csv_rows
+from sqlite_migration_lib import ITEM_TYPE_MAP, normalize_date, normalize_header, read_csv_rows
 
 
 LEGACY_ITEM_REQUIRED_HEADERS = ["類別", "項目名稱"]
@@ -69,7 +69,7 @@ def convert_item_rows(rows: list[dict[str, str]], base_currency: str) -> list[li
 
 def convert_transaction_rows(rows: list[dict[str, str]]) -> list[list[str]]:
     output_rows: list[list[str]] = [NEW_TRANSACTION_HEADERS]
-    for row in rows:
+    for row in sorted(rows, key=transaction_sort_key):
         amount = normalize_header(row.get("金額", ""))
         output_rows.append(
             [
@@ -83,6 +83,11 @@ def convert_transaction_rows(rows: list[dict[str, str]]) -> list[list[str]]:
             ]
         )
     return output_rows
+
+
+def transaction_sort_key(row: dict[str, str]) -> tuple[str, int]:
+    row_number = int(row.get("__row_number", "0") or 0)
+    return normalize_date(row.get("日期", "")), row_number
 
 
 def write_csv(path: Path, rows: list[list[str]]) -> None:
@@ -105,6 +110,8 @@ def main() -> int:
 
     item_rows = read_csv_rows(legacy_items_path)
     transaction_rows = read_csv_rows(legacy_transactions_path)
+    for index, row in enumerate(transaction_rows, start=2):
+        row["__row_number"] = str(index)
     validate_headers(item_rows, LEGACY_ITEM_REQUIRED_HEADERS, "舊 items CSV")
     validate_headers(transaction_rows, LEGACY_TRANSACTION_REQUIRED_HEADERS, "舊 transactions CSV")
 
