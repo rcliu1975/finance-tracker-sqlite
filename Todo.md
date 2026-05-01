@@ -41,6 +41,8 @@
 6. `monthly_snapshots` 已新增月底本位幣估值與匯率欄位，snapshot rebuild 已會寫入
 7. 前端交易表單、列表、編輯流程已切到 `fromAmount` / `toAmount`
 8. 桌面版 sidebar、總覽、圖表與矩陣匯出已切到 snapshot 本位幣估值口徑
+9. `sqlite-http-bridge` 已在 request 層拒絕非 allow-list Origin，且寫入 body 必須使用 `application/json`
+10. readonly transaction table body 已改用 DOM node 更新，減少高頻 `innerHTML` 注入面
 
 ## 待實作
 
@@ -59,6 +61,6 @@
 
 ### 3. 安全
 
-1. `sqlite-http-bridge` 已支援 `--cors-origin` allowlist；手動 `sqlite:bridge` 流程仍需維持明確設定
+1. 手動 `sqlite:bridge` 流程仍需維持明確 `--cors-origin`
 2. bridge session token 已改成瀏覽器 `sessionStorage`；若前端出現 XSS 仍可被讀取
-3. 前端仍大量依賴 `innerHTML`，需逐步縮小高頻可寫區塊
+3. 前端仍有多處 `innerHTML`，需逐步縮小可寫區塊

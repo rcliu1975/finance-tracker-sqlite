@@ -31,6 +31,7 @@ FAILED_LOGIN_WINDOW_SECONDS = 300
 FAILED_LOGIN_MAX_ATTEMPTS = 5
 FAILED_LOGIN_DELAY_SECONDS = 1.0
 FAILED_LOGIN_LOCKOUT_SECONDS = 900
+JSON_BODY_METHODS = {"POST", "PUT", "PATCH"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -674,8 +675,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def handle_request(self, method: str):
         try:
+            self.ensure_origin_allowed()
             parsed = urlparse(self.path)
-            payload = self.read_json_body() if method in {"POST", "PUT", "PATCH"} else None
+            payload = self.read_json_body() if method in JSON_BODY_METHODS else None
             response = self.dispatch(method, parsed.path, parse_qs(parsed.query), payload)
             self.write_json(HTTPStatus.OK, response)
         except KeyError as exc:
@@ -891,6 +893,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0:
             return {}
+        content_type = str(self.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ValueError("請使用 application/json Content-Type。")
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def read_bearer_token(self) -> str:
@@ -933,6 +938,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+
+    def ensure_origin_allowed(self):
+        request_origin = normalize_origin(self.headers.get("Origin", ""))
+        if request_origin and request_origin not in self.server.allowed_origins:
+            raise PermissionError("不允許的 Origin。")
 
     def get_client_identifier(self) -> str:
         forwarded_for = str(self.headers.get("X-Forwarded-For", "") or "").strip()

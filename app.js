@@ -3591,10 +3591,11 @@ function renderTransactions() {
   const bodyRenderKey = getTransactionTableBodyRenderKey();
   let didRerenderBody = false;
   if (state.transactionTableBodyRenderKey !== bodyRenderKey) {
-    $("transactionTableBody").innerHTML =
-      state.transactionEditMode
-        ? renderEditableTransactions(transactions)
-        : renderReadonlyTransactions(transactions);
+    if (state.transactionEditMode) {
+      $("transactionTableBody").innerHTML = renderEditableTransactions(transactions);
+    } else {
+      renderReadonlyTransactionRows(transactions);
+    }
     state.transactionTableBodyRenderKey = bodyRenderKey;
     didRerenderBody = true;
   }
@@ -3705,6 +3706,62 @@ function renderReadonlyTransactions(transactions) {
       .join("") ||
     '<tr><td colspan="7">目前還沒有記錄資料。</td></tr>'
   );
+}
+
+function renderReadonlyTransactionRows(transactions) {
+  const body = $("transactionTableBody");
+  const fragment = document.createDocumentFragment();
+  const balanceMap = state.desktopMode ? buildDesktopBalanceMap() : {};
+  const showBalance = state.desktopMode && shouldShowDesktopBalanceColumn();
+  const emptyColspan = state.desktopMode && showBalance ? 8 : 7;
+
+  if (!transactions.length) {
+    fragment.appendChild(buildEmptyTransactionRow(emptyColspan));
+    body.replaceChildren(fragment);
+    return;
+  }
+
+  transactions.forEach((transaction) => {
+    fragment.appendChild(buildReadonlyTransactionRow(transaction, { balanceMap, showBalance }));
+  });
+  body.replaceChildren(fragment);
+}
+
+function buildReadonlyTransactionRow(transaction, { balanceMap, showBalance }) {
+  const row = document.createElement("tr");
+  row.className = state.desktopMode ? "desktop-transaction-row" : "mobile-transaction-row";
+  row.dataset.transactionId = String(transaction.id || "");
+  row.tabIndex = 0;
+
+  appendTextCell(row, formatDesktopDateCell(transaction.date));
+  appendTextCell(row, itemText(getTransactionFromItem(transaction)));
+  appendTextCell(row, getTransactionDisplayAmountText(transaction, "from"));
+  appendTextCell(row, transactionTypeText(transaction));
+  appendTextCell(row, itemText(getTransactionToItem(transaction)));
+  appendTextCell(row, getTransactionDisplayAmountText(transaction, "to"));
+  appendTextCell(row, transaction.note || "-");
+
+  if (state.desktopMode && showBalance) {
+    appendTextCell(row, formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0));
+  }
+
+  return row;
+}
+
+function buildEmptyTransactionRow(colspan) {
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = colspan;
+  cell.textContent = "目前還沒有記錄資料。";
+  row.appendChild(cell);
+  return row;
+}
+
+function appendTextCell(row, value) {
+  const cell = document.createElement("td");
+  cell.textContent = String(value ?? "");
+  row.appendChild(cell);
+  return cell;
 }
 
 function renderEditableTransactions(transactions) {
