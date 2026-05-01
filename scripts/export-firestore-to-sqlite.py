@@ -293,14 +293,15 @@ def write_sqlite(
         for account in accounts:
             connection.execute(
                 """
-                INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO accounts (id, user_id, name, type, currency, opening_balance, order_index, is_protected, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(account["id"]),
                     user["uid"],
                     str(account.get("name", "") or ""),
                     str(account.get("type", "") or ""),
+                    str(account.get("currency", "TWD") or "TWD"),
                     normalize_int(account.get("balance"), 0),
                     normalize_int(account.get("order"), 0),
                     1 if bool(account.get("protected")) else 0,
@@ -350,8 +351,8 @@ def write_sqlite(
             connection.execute(
                 """
                 INSERT INTO transactions (
-                  id, user_id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  id, user_id, txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(item["id"]),
@@ -361,7 +362,8 @@ def write_sqlite(
                     str(item.get("fromItem", {}).get("id", "") or ""),
                     str(item.get("toItem", {}).get("kind", "") or ""),
                     str(item.get("toItem", {}).get("id", "") or ""),
-                    normalize_int(item.get("amount"), 0),
+                    normalize_int(item.get("fromAmount", item.get("amount")), 0),
+                    normalize_int(item.get("toAmount", item.get("amount")), 0),
                     str(item.get("note", "") or ""),
                     str(item.get("memo", "") or ""),
                     normalize_int(item.get("createdAt"), 0),
@@ -373,14 +375,16 @@ def write_sqlite(
             connection.execute(
                 """
                 INSERT INTO monthly_snapshots (
-                  user_id, month, closing_balances_json, income_total, expense_total, category_totals_json,
-                  net_worth, transaction_count, source_last_transaction_date, rebuilt_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  user_id, month, closing_balances_json, closing_base_values_json, closing_fx_rates_json,
+                  income_total, expense_total, category_totals_json, net_worth, transaction_count, source_last_transaction_date, rebuilt_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user["uid"],
                     str(snapshot.get("month", "") or ""),
                     json.dumps(snapshot.get("closingBalances", {}) or {}, ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(snapshot.get("closingBaseValues", {}) or {}, ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(snapshot.get("closingFxRates", {}) or {}, ensure_ascii=False, separators=(",", ":")),
                     normalize_int(snapshot.get("incomeTotal"), 0),
                     normalize_int(snapshot.get("expenseTotal"), 0),
                     json.dumps(snapshot.get("categoryTotals", {}) or {}, ensure_ascii=False, separators=(",", ":")),

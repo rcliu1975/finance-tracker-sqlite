@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 import sqlite3
 
-from sqlite_migration_lib import TABLES, connect_sqlite
+from sqlite_migration_lib import TABLES, connect_sqlite, has_column
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,14 +42,22 @@ def main() -> int:
         if user:
             print("user:", dict(user))
 
-        sample_txn = conn.execute(
+        sample_query = (
             """
+            SELECT txn_date, from_amount, to_amount, note, substr(replace(memo, char(10), ' / '), 1, 80) AS memo_preview
+            FROM transactions
+            ORDER BY rowid
+            LIMIT 3
+            """
+            if has_column(conn, "transactions", "from_amount") and has_column(conn, "transactions", "to_amount")
+            else """
             SELECT txn_date, amount, note, substr(replace(memo, char(10), ' / '), 1, 80) AS memo_preview
             FROM transactions
             ORDER BY rowid
             LIMIT 3
             """
-        ).fetchall()
+        )
+        sample_txn = conn.execute(sample_query).fetchall()
         print("sample transactions:")
         for row in sample_txn:
             print("  ", dict(row))

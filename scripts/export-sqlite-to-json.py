@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from sqlite_migration_lib import connect_sqlite
+from sqlite_migration_lib import connect_sqlite, has_column
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,21 +54,30 @@ def load_settings(conn, user_id: str) -> dict:
 
 
 def load_accounts(conn, user_id: str) -> list[dict]:
-    rows = conn.execute(
+    account_has_currency = has_column(conn, "accounts", "currency")
+    query = (
         """
+        SELECT id, name, type, currency, opening_balance, order_index, created_at, is_protected
+        FROM accounts
+        WHERE user_id = ?
+        ORDER BY type ASC, order_index ASC, created_at ASC, id ASC
+        """
+        if account_has_currency
+        else """
         SELECT id, name, type, opening_balance, order_index, created_at, is_protected
         FROM accounts
         WHERE user_id = ?
         ORDER BY type ASC, order_index ASC, created_at ASC, id ASC
-        """,
-        (user_id,),
-    ).fetchall()
+        """
+    )
+    rows = conn.execute(query, (user_id,)).fetchall()
     return [
         {
             "id": str(row["id"]),
             "name": str(row["name"] or ""),
             "type": str(row["type"] or ""),
             "balance": int(row["opening_balance"] or 0),
+            "currency": str(row["currency"] or "TWD") if account_has_currency else "TWD",
             "order": int(row["order_index"] or 0),
             "createdAt": int(row["created_at"] or 0),
             "protected": bool(row["is_protected"]),
@@ -138,22 +147,32 @@ def load_recurring(conn, user_id: str) -> list[dict]:
 
 
 def load_transactions(conn, user_id: str, accounts_by_id: dict, categories_by_id: dict) -> list[dict]:
-    rows = conn.execute(
+    dual_amounts = has_column(conn, "transactions", "from_amount") and has_column(conn, "transactions", "to_amount")
+    query = (
         """
+        SELECT id, txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo, created_at
+        FROM transactions
+        WHERE user_id = ?
+        ORDER BY txn_date DESC, created_at DESC, id DESC
+        """
+        if dual_amounts
+        else """
         SELECT id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at
         FROM transactions
         WHERE user_id = ?
         ORDER BY txn_date DESC, created_at DESC, id DESC
-        """,
-        (user_id,),
-    ).fetchall()
+        """
+    )
+    rows = conn.execute(query, (user_id,)).fetchall()
     return [
         {
             "id": str(row["id"]),
             "date": str(row["txn_date"] or ""),
             "fromItem": build_item_ref(str(row["from_kind"] or ""), str(row["from_id"] or ""), accounts_by_id, categories_by_id),
             "toItem": build_item_ref(str(row["to_kind"] or ""), str(row["to_id"] or ""), accounts_by_id, categories_by_id),
-            "amount": int(row["amount"] or 0),
+            "amount": int((row["to_amount"] if dual_amounts else row["amount"]) or 0),
+            "fromAmount": int((row["from_amount"] if dual_amounts else row["amount"]) or 0),
+            "toAmount": int((row["to_amount"] if dual_amounts else row["amount"]) or 0),
             "note": str(row["note"] or ""),
             "memo": str(row["memo"] or ""),
             "createdAt": int(row["created_at"] or 0),
@@ -163,10 +182,27 @@ def load_transactions(conn, user_id: str, accounts_by_id: dict, categories_by_id
 
 
 def load_monthly_snapshots(conn, user_id: str) -> list[dict]:
+    snapshot_has_base_values = has_column(conn, "monthly_snapshots", "closing_base_values_json")
+    snapshot_has_fx_rates = has_column(conn, "monthly_snapshots", "closing_fx_rates_json")
+    columns = ["month", "closing_balances_json"]
+    if snapshot_has_base_values:
+        columns.append("closing_base_values_json")
+    if snapshot_has_fx_rates:
+        columns.append("closing_fx_rates_json")
+    columns.extend(
+        [
+            "income_total",
+            "expense_total",
+            "category_totals_json",
+            "net_worth",
+            "transaction_count",
+            "source_last_transaction_date",
+            "rebuilt_at",
+        ]
+    )
     rows = conn.execute(
-        """
-        SELECT month, closing_balances_json, income_total, expense_total, category_totals_json,
-               net_worth, transaction_count, source_last_transaction_date, rebuilt_at
+        f"""
+        SELECT {', '.join(columns)}
         FROM monthly_snapshots
         WHERE user_id = ?
         ORDER BY month ASC
@@ -178,6 +214,8 @@ def load_monthly_snapshots(conn, user_id: str) -> list[dict]:
             "id": str(row["month"]),
             "month": str(row["month"] or ""),
             "closingBalances": json.loads(str(row["closing_balances_json"] or "{}")),
+            "closingBaseValues": json.loads(str(row["closing_base_values_json"] or "{}")) if snapshot_has_base_values else {},
+            "closingFxRates": json.loads(str(row["closing_fx_rates_json"] or "{}")) if snapshot_has_fx_rates else {},
             "incomeTotal": int(row["income_total"] or 0),
             "expenseTotal": int(row["expense_total"] or 0),
             "categoryTotals": json.loads(str(row["category_totals_json"] or "{}")),

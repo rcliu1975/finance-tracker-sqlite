@@ -5,7 +5,7 @@ import argparse
 import csv
 from pathlib import Path
 
-from sqlite_migration_lib import connect_sqlite
+from sqlite_migration_lib import connect_sqlite, has_column
 
 
 TYPE_LABELS = {
@@ -37,11 +37,6 @@ def read_user_id(conn, user_id: str) -> str:
     if not row:
         raise SystemExit("資料庫內沒有 users 資料。")
     return str(row["id"])
-
-
-def has_column(conn, table: str, column_name: str) -> bool:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return any(str(row["name"] or "") == column_name for row in rows)
 
 
 def load_common_summaries(conn, user_id: str) -> dict[str, str]:

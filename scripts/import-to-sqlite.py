@@ -248,14 +248,15 @@ def write_firestore_payload(
     for account in accounts:
         connection.execute(
             """
-            INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO accounts (id, user_id, name, type, currency, opening_balance, order_index, is_protected, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(account["id"]),
                 user["uid"],
                 str(account.get("name", "") or ""),
                 str(account.get("type", "") or ""),
+                str(account.get("currency", "TWD") or "TWD"),
                 int(account.get("balance", 0) or 0),
                 int(account.get("order", 0) or 0),
                 1 if bool(account.get("protected")) else 0,
@@ -305,8 +306,8 @@ def write_firestore_payload(
         connection.execute(
             """
             INSERT INTO transactions (
-              id, user_id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              id, user_id, txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(item["id"]),
@@ -316,7 +317,8 @@ def write_firestore_payload(
                 str(item.get("fromItem", {}).get("id", "") or ""),
                 str(item.get("toItem", {}).get("kind", "") or ""),
                 str(item.get("toItem", {}).get("id", "") or ""),
-                int(item.get("amount", 0) or 0),
+                int(item.get("fromAmount", item.get("amount", 0)) or 0),
+                int(item.get("toAmount", item.get("amount", 0)) or 0),
                 str(item.get("note", "") or ""),
                 str(item.get("memo", "") or ""),
                 int(item.get("createdAt", 0) or 0),

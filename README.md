@@ -184,6 +184,20 @@ npm run sqlite:convert-legacy-csv -- \
   - 本幣交易兩欄數值通常相同
   - 涉及外幣帳戶時，兩欄可不同
 
+目前 SQLite schema 已正式切到：
+
+- `accounts.currency`
+- `transactions.from_amount`
+- `transactions.to_amount`
+- `monthly_snapshots.closing_base_values_json`
+- `monthly_snapshots.closing_fx_rates_json`
+
+也就是：
+
+- 新建立的 SQLite 資料庫會直接使用外幣版欄位
+- CLI 匯入匯出已能讀寫這套欄位
+- bridge / seed JSON 匯出也已會帶出 `currency`、`fromAmount`、`toAmount` 與 snapshot 估值欄位
+
 ### 匯出 SQLite 項目 CSV
 
 ```bash

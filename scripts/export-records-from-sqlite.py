@@ -5,7 +5,7 @@ import argparse
 import csv
 from pathlib import Path
 
-from sqlite_migration_lib import connect_sqlite
+from sqlite_migration_lib import connect_sqlite, has_column
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,28 +48,41 @@ def resolve_item_name(kind: str, item_id: str, account_names: dict[str, str], ca
 
 def export_rows(conn, user_id: str) -> list[list[str]]:
     account_names, category_names = load_item_name_maps(conn, user_id)
-    transaction_rows = conn.execute(
-        """
-        SELECT txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at, id
-        FROM transactions
-        WHERE user_id = ?
-        ORDER BY txn_date ASC, created_at ASC, id ASC
-        """,
-        (user_id,),
-    ).fetchall()
+    dual_amounts = has_column(conn, "transactions", "from_amount") and has_column(conn, "transactions", "to_amount")
+    if dual_amounts:
+        transaction_rows = conn.execute(
+            """
+            SELECT txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo, created_at, id
+            FROM transactions
+            WHERE user_id = ?
+            ORDER BY txn_date ASC, created_at ASC, id ASC
+            """,
+            (user_id,),
+        ).fetchall()
+    else:
+        transaction_rows = conn.execute(
+            """
+            SELECT txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at, id
+            FROM transactions
+            WHERE user_id = ?
+            ORDER BY txn_date ASC, created_at ASC, id ASC
+            """,
+            (user_id,),
+        ).fetchall()
 
     rows: list[list[str]] = [["日期", "從項目", "從金額", "至項目", "至金額", "摘要", "備註"]]
     for row in transaction_rows:
         from_id = str(row["from_id"] or "")
         to_id = str(row["to_id"] or "")
-        amount = str(int(row["amount"] or 0))
+        from_amount = str(int((row["from_amount"] if dual_amounts else row["amount"]) or 0))
+        to_amount = str(int((row["to_amount"] if dual_amounts else row["amount"]) or 0))
         rows.append(
             [
                 str(row["txn_date"] or ""),
                 resolve_item_name(str(row["from_kind"] or ""), from_id, account_names, category_names),
-                amount,
+                from_amount,
                 resolve_item_name(str(row["to_kind"] or ""), to_id, account_names, category_names),
-                amount,
+                to_amount,
                 str(row["note"] or ""),
                 str(row["memo"] or ""),
             ]

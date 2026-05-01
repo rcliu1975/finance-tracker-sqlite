@@ -102,6 +102,11 @@ def connect_sqlite(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
+def has_column(connection: sqlite3.Connection, table: str, column_name: str) -> bool:
+    rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(str(row["name"] or "") == column_name for row in rows)
+
+
 def prepare_database(db_path: Path, schema_sql: str, replace: bool) -> sqlite3.Connection:
     if db_path.exists():
         if not replace:

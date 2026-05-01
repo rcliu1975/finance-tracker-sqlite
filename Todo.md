@@ -34,24 +34,20 @@
 1. 外幣規劃 CSV 範例改成由 `sqlite:generate-fx-csv-examples` 動態產生，不再把 `examples/` 內容放進版控
 2. 已新增 `sqlite:convert-legacy-csv`，可把舊版單一 `金額` 匯入 CSV 轉成外幣規劃中的新格式
 3. README 已同步標明舊格式與新格式差異
+4. `sqlite/schema.sql` 已切到 `accounts.currency`、`transactions.from_amount/to_amount`
+5. SQLite import / export / verify / bridge 已切到新欄位，並保留必要的舊資料相容讀取
+6. `monthly_snapshots` 已新增月底本位幣估值與匯率欄位，snapshot rebuild 已會寫入
 
 ## 待實作
 
-### 1. Schema 與資料層
-
-1. 更新 `sqlite/schema.sql`
-2. 更新 SQLite import / export / verify / bridge 相關腳本
-3. 更新 `monthly_snapshots` rebuild 與估值欄位
-4. 明確定義本位幣欄位名稱、snapshot 估值欄位格式、是否保存估值匯率
-
-### 2. 前端與報表
+### 1. 前端與報表
 
 1. 更新前端交易表單、列表、編輯流程與顯示欄位
 2. 更新桌面版 sidebar、總覽、圖表與矩陣匯出腳本
 3. 定義匯差是否只做估值用途，或納入正式損益欄位
 4. 定義驗帳公式與總資產報表口徑
 
-### 3. 效能與更新範圍
+### 2. 效能與更新範圍
 
 1. 把 running balance 的重算範圍進一步限制在「前一快照之後 + 當月資料」
 2. 檢查桌面版切換時 `refreshTransactionsForCurrentView()` 的查詢範圍，確認在 dirty month 很早時是否還能再縮
