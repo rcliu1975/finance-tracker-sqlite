@@ -168,6 +168,8 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const BASE_CURRENCY = "TWD";
+const CHART_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/chart.js";
+let chartScriptLoadPromise = null;
 const decimalFmt = new Intl.NumberFormat("zh-TW", {
   maximumFractionDigits: 0
 });
@@ -1537,14 +1539,12 @@ function renderSessionState(user) {
     $("appShell").classList.add("hidden");
     $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsCredentialSession);
     $("sessionControls").classList.add("hidden");
-    if (!$("sessionError").textContent) {
-      if (appRuntime.supportsCredentialSession) {
-        $("sessionStatus").textContent = appRuntime.supportsCredentialRegistration
-          ? "請輸入 Email 與密碼登入或註冊"
-          : "請輸入 Email 與密碼登入";
-      } else {
+    if (appRuntime.supportsCredentialSession) {
+      $("sessionStatus").textContent = appRuntime.supportsCredentialRegistration
+        ? "請輸入 Email 與密碼登入或註冊"
+        : "請輸入 Email 與密碼登入";
+    } else if (!$("sessionError").textContent) {
         $("sessionStatus").textContent = `等待 ${providerLabel} 後端就緒`;
-      }
     }
     return;
   }
@@ -3560,7 +3560,7 @@ function renderOverview() {
   const netWorth = currentSnapshot
     ? Number(currentSnapshot.netWorth || 0)
     : state.accounts.reduce((sum, account) => {
-        const value = Number((baseValues || {})[account.id] ?? (balances || {})[account.id] || 0);
+        const value = Number((baseValues || {})[account.id] ?? ((balances || {})[account.id] || 0));
         return sum + (inferAccountType(account) === "liability" ? -value : value);
       }, 0);
   $("netWorth").textContent = fmt(netWorth);
@@ -4081,10 +4081,10 @@ function getDesktopBalanceStart(scope, targetMonth = "") {
     }
     const assetTotal = state.accounts
       .filter((account) => inferAccountType(account) === "asset")
-      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? account.balance || 0), 0);
+      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? (account.balance || 0)), 0);
     const liabilityTotal = state.accounts
       .filter((account) => inferAccountType(account) === "liability")
-      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? account.balance || 0), 0);
+      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? (account.balance || 0)), 0);
     return assetTotal - liabilityTotal;
   }
 
@@ -4096,7 +4096,7 @@ function getDesktopBalanceStart(scope, targetMonth = "") {
 
   return state.accounts
     .filter((account) => inferAccountType(account) === scope.type)
-    .reduce((sum, account) => sum + Number(baseValues[account.id] ?? account.balance || 0), 0);
+    .reduce((sum, account) => sum + Number(baseValues[account.id] ?? (account.balance || 0)), 0);
 }
 
 function getDesktopBalanceDelta(transaction, scope) {
@@ -4414,7 +4414,37 @@ function buildChartData() {
   return chartData;
 }
 
+function ensureChartLibraryLoaded() {
+  if (typeof globalThis.Chart === "function") {
+    return Promise.resolve();
+  }
+  if (chartScriptLoadPromise) {
+    return chartScriptLoadPromise;
+  }
+
+  chartScriptLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = CHART_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Chart.js 載入失敗。"));
+    document.head.append(script);
+  });
+  return chartScriptLoadPromise;
+}
+
 function renderCharts() {
+  if (typeof globalThis.Chart !== "function") {
+    ensureChartLibraryLoaded()
+      .then(() => {
+        if (state.uid) {
+          renderCharts();
+        }
+      })
+      .catch((error) => console.warn(error));
+    return;
+  }
+
   const { pieData, barData } = buildChartData();
 
   if (state.pieChart) {
