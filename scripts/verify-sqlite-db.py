@@ -6,6 +6,7 @@ Verify a generated SQLite database at a coarse level.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sqlite3
 
@@ -22,7 +23,7 @@ def parse_args() -> argparse.Namespace:
 def load_snapshot_rows(conn: sqlite3.Connection, user_id: str) -> list[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT month, net_worth, income_total, expense_total, closing_base_values_json
+        SELECT month, net_worth, income_total, expense_total, category_totals_json, closing_base_values_json
         FROM monthly_snapshots
         WHERE user_id = ?
         ORDER BY month ASC
@@ -31,28 +32,47 @@ def load_snapshot_rows(conn: sqlite3.Connection, user_id: str) -> list[sqlite3.R
     ).fetchall()
 
 
+def load_category_types(conn: sqlite3.Connection, user_id: str) -> dict[str, str]:
+    rows = conn.execute("SELECT id, type FROM categories WHERE user_id = ?", (user_id,)).fetchall()
+    return {str(row["id"] or ""): str(row["type"] or "") for row in rows}
+
+
+def sum_category_totals_by_types(category_totals: dict[str, int], category_types: dict[str, str], allowed_types: set[str]) -> int:
+    total = 0
+    for category_id, amount in category_totals.items():
+        if category_types.get(category_id) in allowed_types:
+            total += int(amount or 0)
+    return total
+
+
 def print_reconciliation_summary(conn: sqlite3.Connection, user_id: str) -> None:
     snapshots = load_snapshot_rows(conn, user_id)
     if not snapshots:
         print("reconciliation: no monthly snapshots")
         return
 
+    category_types = load_category_types(conn, user_id)
     print("reconciliation:")
     start_index = max(0, len(snapshots) - 6)
     previous_net_worth = int(snapshots[start_index - 1]["net_worth"] or 0) if start_index > 0 else 0
     for row in snapshots[start_index:]:
         month = str(row["month"] or "")
         net_worth = int(row["net_worth"] or 0)
-        income_total = int(row["income_total"] or 0)
-        expense_total = int(row["expense_total"] or 0)
+        category_totals = json.loads(str(row["category_totals_json"] or "{}"))
+        income_total = sum_category_totals_by_types(category_totals, category_types, {"income"})
+        expense_total = sum_category_totals_by_types(category_totals, category_types, {"expense"})
+        non_operating_income = sum_category_totals_by_types(category_totals, category_types, {"nonOperatingIncome"})
+        non_operating_expense = sum_category_totals_by_types(category_totals, category_types, {"nonOperatingExpense"})
         net_worth_delta = net_worth - previous_net_worth
-        operating_delta = income_total - expense_total
-        fx_valuation_delta = net_worth_delta - operating_delta
+        total_flow_delta = (income_total + non_operating_income) - (expense_total + non_operating_expense)
+        fx_valuation_delta = net_worth_delta - total_flow_delta
         print(
             "  "
             f"{month}: "
             f"netWorthDelta={net_worth_delta} "
-            f"operatingDelta={operating_delta} "
+            f"operatingDelta={income_total - expense_total} "
+            f"nonOperatingDelta={non_operating_income - non_operating_expense} "
+            f"totalFlowDelta={total_flow_delta} "
             f"fxValuationDelta={fx_valuation_delta}"
         )
         previous_net_worth = net_worth

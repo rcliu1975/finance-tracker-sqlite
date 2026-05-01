@@ -2641,6 +2641,7 @@ function buildDesktopSidebarGroups(balances, baseValues, monthSnapshot = null) {
   const expenseItems = buildDesktopCategoryItems("expense", monthTransactions, monthSnapshot);
   const nonOperatingIncomeItems = buildDesktopCategoryItems("nonOperatingIncome", monthTransactions, monthSnapshot);
   const nonOperatingExpenseItems = buildDesktopCategoryItems("nonOperatingExpense", monthTransactions, monthSnapshot);
+  const sumCategoryItems = (items) => items.reduce((sum, item) => sum + parseCurrency(item.valueText), 0);
 
   return [
     {
@@ -2662,36 +2663,28 @@ function buildDesktopSidebarGroups(balances, baseValues, monthSnapshot = null) {
       label: "收入",
       badge: "I",
       items: incomeItems,
-      totalText: fmt(monthSnapshot ? getSnapshotMonthIncome(state.desktopDate) : incomeItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0))
+      totalText: fmt(sumCategoryItems(incomeItems))
     },
     {
       key: "expense",
       label: "支出",
       badge: "E",
       items: expenseItems,
-      totalText: fmt(monthSnapshot ? getSnapshotMonthExpense(state.desktopDate) : expenseItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0))
+      totalText: fmt(sumCategoryItems(expenseItems))
     },
     {
       key: "nonOperatingIncome",
       label: "業外收入",
       badge: "N",
       items: nonOperatingIncomeItems,
-      totalText: fmt(
-        monthSnapshot
-          ? nonOperatingIncomeItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-          : nonOperatingIncomeItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-      )
+      totalText: fmt(sumCategoryItems(nonOperatingIncomeItems))
     },
     {
       key: "nonOperatingExpense",
       label: "業外支出",
       badge: "O",
       items: nonOperatingExpenseItems,
-      totalText: fmt(
-        monthSnapshot
-          ? nonOperatingExpenseItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-          : nonOperatingExpenseItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-      )
+      totalText: fmt(sumCategoryItems(nonOperatingExpenseItems))
     }
   ];
 }
@@ -3519,11 +3512,39 @@ function buildAccountBaseValues(maxMonth = "") {
   return baseValues;
 }
 
+function sumSnapshotCategoryTotalsByType(snapshotMonth, matchesType) {
+  const snapshot = getMonthlySnapshot(snapshotMonth);
+  const categoryTotals = snapshot?.categoryTotals;
+  if (!categoryTotals || typeof categoryTotals !== "object") {
+    return null;
+  }
+
+  let matched = false;
+  let total = 0;
+  Object.entries(categoryTotals).forEach(([categoryId, amount]) => {
+    const category = state.categories.find((item) => item.id === categoryId);
+    if (!category || !matchesType(category.type)) {
+      return;
+    }
+    matched = true;
+    total += Number(amount || 0);
+  });
+  return matched ? total : null;
+}
+
 function getSnapshotMonthIncome(snapshotMonth) {
+  const derivedTotal = sumSnapshotCategoryTotalsByType(snapshotMonth, isIncomeCategoryType);
+  if (derivedTotal !== null) {
+    return derivedTotal;
+  }
   return Number(getMonthlySnapshot(snapshotMonth)?.incomeTotal || 0);
 }
 
 function getSnapshotMonthExpense(snapshotMonth) {
+  const derivedTotal = sumSnapshotCategoryTotalsByType(snapshotMonth, isExpenseCategoryType);
+  if (derivedTotal !== null) {
+    return derivedTotal;
+  }
   return Number(getMonthlySnapshot(snapshotMonth)?.expenseTotal || 0);
 }
 

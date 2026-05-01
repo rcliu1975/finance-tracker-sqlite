@@ -138,7 +138,7 @@ def rebuild_snapshots(connection: sqlite3.Connection, user_id: str, from_month: 
     categories_by_id = {item["id"]: item for item in categories}
     transactions = SNAPSHOTS.load_transactions(connection, user_id, accounts_by_id, categories_by_id)
     dirty_from_month = str(settings["snapshot_dirty_from_month"] or "") if settings else ""
-    summary = SNAPSHOTS.build_snapshots(accounts, transactions, from_month, dirty_from_month)
+    summary = SNAPSHOTS.build_snapshots(accounts, categories, transactions, from_month, dirty_from_month)
     connection.execute("DELETE FROM monthly_snapshots WHERE user_id = ?", (user_id,))
     if summary["snapshots"]:
         SNAPSHOTS.persist_snapshots(connection, user_id, summary["snapshots"])

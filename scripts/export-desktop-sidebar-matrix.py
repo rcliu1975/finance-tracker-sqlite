@@ -216,15 +216,10 @@ def build_rows(accounts: list[dict], categories: list[dict]) -> list[dict]:
             continue
 
         group_items = categories_by_type[group_key]
-        if group_key == "income":
-            getter = lambda snapshot: snapshot["income_total"]
-        elif group_key == "expense":
-            getter = lambda snapshot: snapshot["expense_total"]
-        else:
-            getter = lambda snapshot, item_type=group_key: sum(
-                int(snapshot["category_totals"].get(item["id"], 0) or 0)
-                for item in categories_by_type[item_type]
-            )
+        getter = lambda snapshot, item_type=group_key: sum(
+            int(snapshot["category_totals"].get(item["id"], 0) or 0)
+            for item in categories_by_type[item_type]
+        )
 
         rows.append(
             {

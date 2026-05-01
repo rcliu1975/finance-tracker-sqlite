@@ -21,6 +21,8 @@ from sqlite_migration_lib import (
 
 
 BASE_CURRENCY = "TWD"
+OPERATING_INCOME_TYPES = {"income"}
+OPERATING_EXPENSE_TYPES = {"expense"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -174,7 +176,22 @@ def to_base_value(balance: int, currency: str, fx_rates: dict[str, Decimal], acc
     return base_value, format(rate.normalize(), "f")
 
 
-def build_snapshots(accounts: list[dict], transactions: list[dict], requested_from_month: str, dirty_from_month: str) -> dict:
+def category_totals_by_type(category_totals: dict[str, int], categories_by_id: dict[str, dict], allowed_types: set[str]) -> int:
+    total = 0
+    for category_id, amount in category_totals.items():
+        category = categories_by_id.get(category_id, {})
+        if str(category.get("type", "") or "") in allowed_types:
+            total += int(amount or 0)
+    return total
+
+
+def build_snapshots(
+    accounts: list[dict],
+    categories: list[dict],
+    transactions: list[dict],
+    requested_from_month: str,
+    dirty_from_month: str,
+) -> dict:
     months = sorted({month_key(transaction["date"]) for transaction in transactions if month_key(transaction["date"])})
     if not months:
         return {"from_month": "", "to_month": "", "snapshots": [], "transaction_count": 0}
@@ -184,14 +201,13 @@ def build_snapshots(accounts: list[dict], transactions: list[dict], requested_fr
     to_month = months[-1]
     target_months = list_months(from_month, to_month)
     balances = {account["id"]: int(account.get("opening_balance") or 0) for account in accounts}
+    categories_by_id = {item["id"]: item for item in categories}
     fx_rates: dict[str, Decimal] = {}
     snapshots = []
     pointer = 0
 
     for month in target_months:
         category_totals: dict[str, int] = {}
-        income_total = 0
-        expense_total = 0
         source_last_transaction_date = ""
         month_transaction_count = 0
 
@@ -216,14 +232,13 @@ def build_snapshots(accounts: list[dict], transactions: list[dict], requested_fr
                 if not delta:
                     continue
                 category_totals[item["id"]] = category_totals.get(item["id"], 0) + delta
-                if item["type"] in {"income", "nonOperatingIncome"}:
-                    income_total += delta
-                elif item["type"] in {"expense", "nonOperatingExpense"}:
-                    expense_total += delta
 
             source_last_transaction_date = transaction["date"] or source_last_transaction_date
             month_transaction_count += 1
             pointer += 1
+
+        income_total = category_totals_by_type(category_totals, categories_by_id, OPERATING_INCOME_TYPES)
+        expense_total = category_totals_by_type(category_totals, categories_by_id, OPERATING_EXPENSE_TYPES)
 
         closing_balances = {account["id"]: int(balances.get(account["id"], 0)) for account in accounts}
         closing_base_values: dict[str, int] = {}
@@ -331,7 +346,7 @@ def main() -> int:
         transactions = load_transactions(connection, args.user_id, accounts_by_id, categories_by_id)
         dirty_from_month = settings["snapshot_dirty_from_month"] if settings else ""
 
-        summary = build_snapshots(accounts, transactions, args.from_month, dirty_from_month)
+        summary = build_snapshots(accounts, categories, transactions, args.from_month, dirty_from_month)
 
         print(f"DB: {db_path}")
         print(f"user_id: {args.user_id}")
