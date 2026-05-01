@@ -46,28 +46,30 @@ async function requestBridgeSessionJson(baseUrl, path, { method = "GET", body, t
 }
 
 function readStoredSQLiteBridgeSession(storageKey) {
-  if (!globalThis.localStorage) {
+  const storage = globalThis.sessionStorage || globalThis.localStorage;
+  if (!storage) {
     return {};
   }
   try {
-    const raw = globalThis.localStorage.getItem(storageKey);
+    const raw = storage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    globalThis.localStorage.removeItem(storageKey);
+    storage.removeItem(storageKey);
     return {};
   }
 }
 
 function writeStoredSQLiteBridgeSession(storageKey, payload) {
-  if (!globalThis.localStorage) {
+  const storage = globalThis.sessionStorage || globalThis.localStorage;
+  if (!storage) {
     return;
   }
   if (!payload || !Object.keys(payload).length) {
-    globalThis.localStorage.removeItem(storageKey);
+    storage.removeItem(storageKey);
     return;
   }
-  globalThis.localStorage.setItem(storageKey, JSON.stringify(payload));
+  storage.setItem(storageKey, JSON.stringify(payload));
 }
 
 export async function loadAppRuntime() {
