@@ -20,23 +20,49 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--user-id", default="local-user", help="Target local user id.")
     parser.add_argument("--bridge-host", default="127.0.0.1", help="SQLite bridge bind host.")
     parser.add_argument("--bridge-port", type=int, default=8765, help="SQLite bridge bind port.")
-    parser.add_argument("--serve-host", default="0.0.0.0", help="Frontend HTTP bind host.")
+    parser.add_argument("--serve-host", default="127.0.0.1", help="Frontend HTTP bind host.")
     parser.add_argument("--serve-port", type=int, default=5173, help="Frontend HTTP bind port.")
     parser.add_argument("--open-host", default="127.0.0.1", help="URL host printed for browser access.")
+    parser.add_argument("--public-origin", default="", help="Public browser origin, e.g. https://www.kennylab.online")
+    parser.add_argument("--public-bridge-path", default="/bridge", help="Public bridge path prefix when using same-origin proxy.")
     parser.add_argument("--login-email", default="", help="Enable external login with this email.")
     parser.add_argument("--login-password", default="", help="Enable external login with this password.")
     return parser.parse_args()
 
 
+def normalize_public_origin(value: str) -> str:
+    return str(value or "").strip().rstrip("/")
+
+
+def normalize_public_path(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "/bridge"
+    return text if text.startswith("/") else f"/{text}"
+
+
+def frontend_url_for_browser(args: argparse.Namespace) -> str:
+    public_origin = normalize_public_origin(args.public_origin)
+    if public_origin:
+        return public_origin
+    return f"http://{args.open_host}:{args.serve_port}"
+
+
+def sqlite_api_base_url(args: argparse.Namespace) -> str:
+    public_origin = normalize_public_origin(args.public_origin)
+    if public_origin:
+        return f"{public_origin}{normalize_public_path(args.public_bridge_path)}"
+    return f"http://{args.open_host}:{args.bridge_port}"
+
+
 def write_temp_env(args: argparse.Namespace) -> str:
     fd, path = tempfile.mkstemp(prefix="finance-tracker-sqlite-", suffix=".env")
-    api_base_url = f"http://{args.open_host}:{args.bridge_port}"
     content = "\n".join(
         [
             "APP_STORAGE_BACKEND=sqlite",
             f"APP_LOCAL_USER_ID={args.user_id}",
             "APP_SQLITE_SEED_PATH=",
-            f"APP_SQLITE_API_BASE_URL={api_base_url}",
+            f"APP_SQLITE_API_BASE_URL={sqlite_api_base_url(args)}",
             "",
         ]
     )
@@ -97,6 +123,8 @@ def main() -> int:
     db_path = Path(args.db).expanduser().resolve()
     if not db_path.exists():
         raise FileNotFoundError(f"找不到 SQLite 資料庫：{db_path}")
+    if bool(str(args.login_email or "").strip()) != bool(str(args.login_password or "").strip()):
+        raise ValueError("如果要啟用 bridge 登入，必須同時指定 --login-email 與 --login-password。")
 
     temp_env_path = write_temp_env(args)
     bridge_process: subprocess.Popen[bytes] | None = None
@@ -116,23 +144,33 @@ def main() -> int:
             check=True,
         )
 
+        frontend_url = frontend_url_for_browser(args)
+        bridge_command = [
+            "python3",
+            "scripts/sqlite-http-bridge.py",
+            "--db",
+            str(db_path),
+            "--user-id",
+            args.user_id,
+            "--host",
+            args.bridge_host,
+            "--port",
+            str(args.bridge_port),
+            "--cors-origin",
+            frontend_url,
+        ]
+        if args.login_email and args.login_password:
+            bridge_command.extend(
+                [
+                    "--login-email",
+                    args.login_email,
+                    "--login-password",
+                    args.login_password,
+                ]
+            )
+
         bridge_process = subprocess.Popen(
-            [
-                "python3",
-                "scripts/sqlite-http-bridge.py",
-                "--db",
-                str(db_path),
-                "--user-id",
-                args.user_id,
-                "--host",
-                args.bridge_host,
-                "--port",
-                str(args.bridge_port),
-                "--login-email",
-                args.login_email,
-                "--login-password",
-                args.login_password,
-            ],
+            bridge_command,
             cwd=repo_root,
         )
         wait_for_health(f"http://{bridge_health_host(args.bridge_host, args.open_host)}:{args.bridge_port}/health")
@@ -149,12 +187,13 @@ def main() -> int:
             cwd=repo_root,
         )
 
-        frontend_url = f"http://{args.open_host}:{args.serve_port}"
-        bridge_url = f"http://{args.open_host}:{args.bridge_port}"
+        bridge_url = sqlite_api_base_url(args)
         print(f"SQLite bridge: {bridge_url}", flush=True)
         print(f"Frontend: {frontend_url}", flush=True)
         if args.login_email and args.login_password:
             print(f"登入帳號: {args.login_email}", flush=True)
+        else:
+            print("Bridge login: disabled", flush=True)
         if args.serve_host in {"0.0.0.0", "::"} or args.bridge_host in {"0.0.0.0", "::"}:
             local_ips = detect_local_ipv4_addresses()
             if local_ips:

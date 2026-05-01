@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sqlite_migration_lib import connect_sqlite, next_id
+from sqlite_migration_lib import connect_sqlite, has_column, next_id
 
 
 def load_script_module(script_name: str, module_name: str):
@@ -31,6 +31,7 @@ FAILED_LOGIN_WINDOW_SECONDS = 300
 FAILED_LOGIN_MAX_ATTEMPTS = 5
 FAILED_LOGIN_DELAY_SECONDS = 1.0
 FAILED_LOGIN_LOCKOUT_SECONDS = 900
+JSON_BODY_METHODS = {"POST", "PUT", "PATCH"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,7 +43,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--login-email", default="", help="Enable UI login with this email.")
     parser.add_argument("--login-password", default="", help="Enable UI login with this password.")
     parser.add_argument("--session-ttl-seconds", type=int, default=43200, help="Bridge session token lifetime.")
+    parser.add_argument(
+        "--cors-origin",
+        action="append",
+        default=[],
+        help="Allowed browser origin for CORS. Repeat or use comma-separated values.",
+    )
     return parser.parse_args()
+
+
+def normalize_origin(value: str) -> str:
+    return str(value or "").strip().rstrip("/")
+
+
+def parse_allowed_origins(values: list[str]) -> set[str]:
+    origins: set[str] = set()
+    for value in values:
+        for part in str(value or "").split(","):
+            origin = normalize_origin(part)
+            if origin:
+                origins.add(origin)
+    return origins
 
 
 def settings_payload(row) -> dict:
@@ -74,21 +95,30 @@ def load_settings(conn, user_id: str):
 
 
 def load_accounts(conn, user_id: str):
-    rows = conn.execute(
+    account_has_currency = has_column(conn, "accounts", "currency")
+    query = (
         """
+        SELECT id, name, type, currency, opening_balance, order_index, created_at, is_protected
+        FROM accounts
+        WHERE user_id = ?
+        ORDER BY order_index ASC, created_at ASC, id ASC
+        """
+        if account_has_currency
+        else """
         SELECT id, name, type, opening_balance, order_index, created_at, is_protected
         FROM accounts
         WHERE user_id = ?
         ORDER BY order_index ASC, created_at ASC, id ASC
-        """,
-        (user_id,),
-    ).fetchall()
+        """
+    )
+    rows = conn.execute(query, (user_id,)).fetchall()
     return [
         {
             "id": str(row["id"]),
             "name": str(row["name"] or ""),
             "type": str(row["type"] or ""),
             "balance": int(row["opening_balance"] or 0),
+            "currency": str(row["currency"] or "TWD") if account_has_currency else "TWD",
             "order": int(row["order_index"] or 0),
             "createdAt": int(row["created_at"] or 0),
             "protected": bool(row["is_protected"]),
@@ -165,6 +195,7 @@ def build_item_ref(kind: str, item_id: str, accounts: dict, categories: dict) ->
 
 def load_transactions(conn, user_id: str, start_date: str = "", end_date: str = ""):
     accounts, categories = item_maps(conn, user_id)
+    dual_amounts = has_column(conn, "transactions", "from_amount") and has_column(conn, "transactions", "to_amount")
     conditions = ["user_id = ?"]
     params: list[object] = [user_id]
     if start_date:
@@ -173,22 +204,31 @@ def load_transactions(conn, user_id: str, start_date: str = "", end_date: str = 
     if end_date:
         conditions.append("txn_date <= ?")
         params.append(end_date)
-    rows = conn.execute(
+    select_sql = (
         f"""
+        SELECT id, txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo, created_at
+        FROM transactions
+        WHERE {' AND '.join(conditions)}
+        ORDER BY txn_date DESC, created_at DESC, id DESC
+        """
+        if dual_amounts
+        else f"""
         SELECT id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at
         FROM transactions
         WHERE {' AND '.join(conditions)}
         ORDER BY txn_date DESC, created_at DESC, id DESC
-        """,
-        tuple(params),
-    ).fetchall()
+        """
+    )
+    rows = conn.execute(select_sql, tuple(params)).fetchall()
     return [
         {
             "id": str(row["id"]),
             "date": str(row["txn_date"] or ""),
             "fromItem": build_item_ref(str(row["from_kind"] or ""), str(row["from_id"] or ""), accounts, categories),
             "toItem": build_item_ref(str(row["to_kind"] or ""), str(row["to_id"] or ""), accounts, categories),
-            "amount": int(row["amount"] or 0),
+            "amount": int((row["to_amount"] if dual_amounts else row["amount"]) or 0),
+            "fromAmount": int((row["from_amount"] if dual_amounts else row["amount"]) or 0),
+            "toAmount": int((row["to_amount"] if dual_amounts else row["amount"]) or 0),
             "note": str(row["note"] or ""),
             "memo": str(row["memo"] or ""),
             "createdAt": int(row["created_at"] or 0),
@@ -198,10 +238,27 @@ def load_transactions(conn, user_id: str, start_date: str = "", end_date: str = 
 
 
 def load_snapshot_by_month(conn, user_id: str, month: str):
+    snapshot_has_base_values = has_column(conn, "monthly_snapshots", "closing_base_values_json")
+    snapshot_has_fx_rates = has_column(conn, "monthly_snapshots", "closing_fx_rates_json")
+    columns = ["month", "closing_balances_json"]
+    if snapshot_has_base_values:
+        columns.append("closing_base_values_json")
+    if snapshot_has_fx_rates:
+        columns.append("closing_fx_rates_json")
+    columns.extend(
+        [
+            "income_total",
+            "expense_total",
+            "category_totals_json",
+            "net_worth",
+            "transaction_count",
+            "source_last_transaction_date",
+            "rebuilt_at",
+        ]
+    )
     row = conn.execute(
-        """
-        SELECT month, closing_balances_json, income_total, expense_total, category_totals_json,
-               net_worth, transaction_count, source_last_transaction_date, rebuilt_at
+        f"""
+        SELECT {', '.join(columns)}
         FROM monthly_snapshots
         WHERE user_id = ? AND month = ?
         """,
@@ -213,6 +270,8 @@ def load_snapshot_by_month(conn, user_id: str, month: str):
         "id": str(row["month"]),
         "month": str(row["month"] or ""),
         "closingBalances": json.loads(str(row["closing_balances_json"] or "{}")),
+        "closingBaseValues": json.loads(str(row["closing_base_values_json"] or "{}")) if snapshot_has_base_values else {},
+        "closingFxRates": json.loads(str(row["closing_fx_rates_json"] or "{}")) if snapshot_has_fx_rates else {},
         "incomeTotal": int(row["income_total"] or 0),
         "expenseTotal": int(row["expense_total"] or 0),
         "categoryTotals": json.loads(str(row["category_totals_json"] or "{}")),
@@ -303,7 +362,7 @@ def rebuild_monthly_snapshots(conn, user_id: str, from_month: str = ""):
     categories_by_id = {item["id"]: item for item in categories}
     transactions = SNAPSHOTS.load_transactions(conn, user_id, accounts_by_id, categories_by_id)
     dirty_from_month = str(settings["snapshot_dirty_from_month"] or "") if settings else ""
-    summary = SNAPSHOTS.build_snapshots(accounts, transactions, from_month, dirty_from_month)
+    summary = SNAPSHOTS.build_snapshots(accounts, categories, transactions, from_month, dirty_from_month)
     conn.execute("DELETE FROM monthly_snapshots WHERE user_id = ?", (user_id,))
     if summary["snapshots"]:
         SNAPSHOTS.persist_snapshots(conn, user_id, summary["snapshots"])
@@ -360,6 +419,7 @@ def ensure_settings_row(conn, user_id: str):
 
 
 def upsert_account(conn, user_id: str, doc_id: str, payload: dict, partial: bool):
+    account_has_currency = has_column(conn, "accounts", "currency")
     if partial:
         current = conn.execute("SELECT * FROM accounts WHERE user_id = ? AND id = ?", (user_id, doc_id)).fetchone()
         if not current:
@@ -368,34 +428,62 @@ def upsert_account(conn, user_id: str, doc_id: str, payload: dict, partial: bool
             "name": current["name"],
             "type": current["type"],
             "balance": current["opening_balance"],
+            "currency": current["currency"] if account_has_currency else "TWD",
             "order": current["order_index"],
             "createdAt": current["created_at"],
             "protected": bool(current["is_protected"]),
             **payload,
         }
-    conn.execute(
-        """
-        INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
-        ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          type = excluded.type,
-          opening_balance = excluded.opening_balance,
-          order_index = excluded.order_index,
-          is_protected = excluded.is_protected,
-          updated_at = unixepoch()
-        """,
-        (
-            doc_id,
-            user_id,
-            str(payload.get("name", "") or ""),
-            str(payload.get("type", "") or ""),
-            int(payload.get("balance", 0) or 0),
-            int(payload.get("order", 0) or 0),
-            1 if bool(payload.get("protected")) else 0,
-            int(payload.get("createdAt", 0) or 0) or int(conn.execute("SELECT unixepoch()").fetchone()[0]),
-        ),
-    )
+    if account_has_currency:
+        conn.execute(
+            """
+            INSERT INTO accounts (id, user_id, name, type, currency, opening_balance, order_index, is_protected, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              type = excluded.type,
+              currency = excluded.currency,
+              opening_balance = excluded.opening_balance,
+              order_index = excluded.order_index,
+              is_protected = excluded.is_protected,
+              updated_at = unixepoch()
+            """,
+            (
+                doc_id,
+                user_id,
+                str(payload.get("name", "") or ""),
+                str(payload.get("type", "") or ""),
+                str(payload.get("currency", "TWD") or "TWD"),
+                int(payload.get("balance", 0) or 0),
+                int(payload.get("order", 0) or 0),
+                1 if bool(payload.get("protected")) else 0,
+                int(payload.get("createdAt", 0) or 0) or int(conn.execute("SELECT unixepoch()").fetchone()[0]),
+            ),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              type = excluded.type,
+              opening_balance = excluded.opening_balance,
+              order_index = excluded.order_index,
+              is_protected = excluded.is_protected,
+              updated_at = unixepoch()
+            """,
+            (
+                doc_id,
+                user_id,
+                str(payload.get("name", "") or ""),
+                str(payload.get("type", "") or ""),
+                int(payload.get("balance", 0) or 0),
+                int(payload.get("order", 0) or 0),
+                1 if bool(payload.get("protected")) else 0,
+                int(payload.get("createdAt", 0) or 0) or int(conn.execute("SELECT unixepoch()").fetchone()[0]),
+            ),
+        )
 
 
 def upsert_category(conn, user_id: str, doc_id: str, payload: dict, partial: bool):
@@ -474,6 +562,7 @@ def upsert_recurring(conn, user_id: str, doc_id: str, payload: dict, partial: bo
 
 
 def upsert_transaction(conn, user_id: str, doc_id: str, payload: dict, partial: bool):
+    dual_amounts = has_column(conn, "transactions", "from_amount") and has_column(conn, "transactions", "to_amount")
     if partial:
         current = conn.execute("SELECT * FROM transactions WHERE user_id = ? AND id = ?", (user_id, doc_id)).fetchone()
         if not current:
@@ -482,42 +571,82 @@ def upsert_transaction(conn, user_id: str, doc_id: str, payload: dict, partial: 
             "date": current["txn_date"],
             "fromItem": {"kind": current["from_kind"], "id": current["from_id"]},
             "toItem": {"kind": current["to_kind"], "id": current["to_id"]},
-            "amount": current["amount"],
+            "amount": current["to_amount"] if dual_amounts else current["amount"],
+            "fromAmount": current["from_amount"] if dual_amounts else current["amount"],
+            "toAmount": current["to_amount"] if dual_amounts else current["amount"],
             "note": current["note"],
             "memo": current["memo"],
             "createdAt": current["created_at"],
             **payload,
         }
-    conn.execute(
-        """
-        INSERT INTO transactions (
-          id, user_id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
-        ON CONFLICT(id) DO UPDATE SET
-          txn_date = excluded.txn_date,
-          from_kind = excluded.from_kind,
-          from_id = excluded.from_id,
-          to_kind = excluded.to_kind,
-          to_id = excluded.to_id,
-          amount = excluded.amount,
-          note = excluded.note,
-          memo = excluded.memo,
-          updated_at = unixepoch()
-        """,
-        (
-            doc_id,
-            user_id,
-            str(payload.get("date", "") or ""),
-            str(payload.get("fromItem", {}).get("kind", "") or ""),
-            str(payload.get("fromItem", {}).get("id", "") or ""),
-            str(payload.get("toItem", {}).get("kind", "") or ""),
-            str(payload.get("toItem", {}).get("id", "") or ""),
-            int(payload.get("amount", 0) or 0),
-            str(payload.get("note", "") or ""),
-            str(payload.get("memo", "") or ""),
-            int(payload.get("createdAt", 0) or 0) or int(conn.execute("SELECT unixepoch()").fetchone()[0]),
-        ),
-    )
+    from_amount = int(payload.get("fromAmount", payload.get("amount", 0)) or 0)
+    to_amount = int(payload.get("toAmount", payload.get("amount", 0)) or 0)
+    if dual_amounts:
+        conn.execute(
+            """
+            INSERT INTO transactions (
+              id, user_id, txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+            ON CONFLICT(id) DO UPDATE SET
+              txn_date = excluded.txn_date,
+              from_kind = excluded.from_kind,
+              from_id = excluded.from_id,
+              to_kind = excluded.to_kind,
+              to_id = excluded.to_id,
+              from_amount = excluded.from_amount,
+              to_amount = excluded.to_amount,
+              note = excluded.note,
+              memo = excluded.memo,
+              updated_at = unixepoch()
+            """,
+            (
+                doc_id,
+                user_id,
+                str(payload.get("date", "") or ""),
+                str(payload.get("fromItem", {}).get("kind", "") or ""),
+                str(payload.get("fromItem", {}).get("id", "") or ""),
+                str(payload.get("toItem", {}).get("kind", "") or ""),
+                str(payload.get("toItem", {}).get("id", "") or ""),
+                from_amount,
+                to_amount,
+                str(payload.get("note", "") or ""),
+                str(payload.get("memo", "") or ""),
+                int(payload.get("createdAt", 0) or 0) or int(conn.execute("SELECT unixepoch()").fetchone()[0]),
+            ),
+        )
+    else:
+        if from_amount != to_amount:
+            raise ValueError("目前資料庫 schema 尚未支援雙金額交易。")
+        conn.execute(
+            """
+            INSERT INTO transactions (
+              id, user_id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+            ON CONFLICT(id) DO UPDATE SET
+              txn_date = excluded.txn_date,
+              from_kind = excluded.from_kind,
+              from_id = excluded.from_id,
+              to_kind = excluded.to_kind,
+              to_id = excluded.to_id,
+              amount = excluded.amount,
+              note = excluded.note,
+              memo = excluded.memo,
+              updated_at = unixepoch()
+            """,
+            (
+                doc_id,
+                user_id,
+                str(payload.get("date", "") or ""),
+                str(payload.get("fromItem", {}).get("kind", "") or ""),
+                str(payload.get("fromItem", {}).get("id", "") or ""),
+                str(payload.get("toItem", {}).get("kind", "") or ""),
+                str(payload.get("toItem", {}).get("id", "") or ""),
+                from_amount,
+                str(payload.get("note", "") or ""),
+                str(payload.get("memo", "") or ""),
+                int(payload.get("createdAt", 0) or 0) or int(conn.execute("SELECT unixepoch()").fetchone()[0]),
+            ),
+        )
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
@@ -546,8 +675,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def handle_request(self, method: str):
         try:
+            self.ensure_origin_allowed()
             parsed = urlparse(self.path)
-            payload = self.read_json_body() if method in {"POST", "PUT", "PATCH"} else None
+            payload = self.read_json_body() if method in JSON_BODY_METHODS else None
             response = self.dispatch(method, parsed.path, parse_qs(parsed.query), payload)
             self.write_json(HTTPStatus.OK, response)
         except KeyError as exc:
@@ -763,6 +893,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0:
             return {}
+        content_type = str(self.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ValueError("請使用 application/json Content-Type。")
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def read_bearer_token(self) -> str:
@@ -793,7 +926,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        request_origin = normalize_origin(self.headers.get("Origin", ""))
+        if request_origin and request_origin in self.server.allowed_origins:
+            self.send_header("Access-Control-Allow-Origin", request_origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 
@@ -802,6 +938,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+
+    def ensure_origin_allowed(self):
+        request_origin = normalize_origin(self.headers.get("Origin", ""))
+        if request_origin and request_origin not in self.server.allowed_origins:
+            raise PermissionError("不允許的 Origin。")
 
     def get_client_identifier(self) -> str:
         forwarded_for = str(self.headers.get("X-Forwarded-For", "") or "").strip()
@@ -864,9 +1005,12 @@ def main() -> int:
     server.session_ttl_seconds = int(args.session_ttl_seconds or 43200)
     server.sessions = {}
     server.failed_login_attempts = {}
+    server.allowed_origins = parse_allowed_origins(args.cors_origin)
     print(f"SQLite bridge listening on http://{args.host}:{args.port} user_id={args.user_id} db={db_path}")
     if server.login_email and server.login_password:
         print(f"SQLite bridge login enabled for {server.login_email}")
+    if server.allowed_origins:
+        print(f"CORS origins: {', '.join(sorted(server.allowed_origins))}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

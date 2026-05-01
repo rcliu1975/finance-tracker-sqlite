@@ -5,7 +5,7 @@ import argparse
 import csv
 from pathlib import Path
 
-from sqlite_migration_lib import connect_sqlite
+from sqlite_migration_lib import connect_sqlite, has_column
 
 
 TYPE_LABELS = {
@@ -58,26 +58,43 @@ def load_common_summaries(conn, user_id: str) -> dict[str, str]:
 
 def export_rows(conn, user_id: str) -> list[list[str]]:
     summaries_by_scope = load_common_summaries(conn, user_id)
-    rows: list[list[str]] = [["類別", "項目名稱", "期初餘額", "次序", "保護項目", "ID", "常用摘要"]]
+    account_has_currency = has_column(conn, "accounts", "currency")
+    rows: list[list[str]] = [["類別", "項目名稱", "幣別", "期初餘額", "次序", "保護項目", "ID", "常用摘要"]]
 
-    account_rows = conn.execute(
-        """
-        SELECT id, name, type, opening_balance, order_index, is_protected, created_at
-        FROM accounts
-        WHERE user_id = ?
-        ORDER BY
-          CASE type WHEN 'asset' THEN 0 WHEN 'liability' THEN 1 ELSE 99 END,
-          order_index ASC,
-          created_at ASC,
-          id ASC
-        """,
-        (user_id,),
-    ).fetchall()
+    if account_has_currency:
+        account_rows = conn.execute(
+            """
+            SELECT id, name, type, currency, opening_balance, order_index, is_protected, created_at
+            FROM accounts
+            WHERE user_id = ?
+            ORDER BY
+              CASE type WHEN 'asset' THEN 0 WHEN 'liability' THEN 1 ELSE 99 END,
+              order_index ASC,
+              created_at ASC,
+              id ASC
+            """,
+            (user_id,),
+        ).fetchall()
+    else:
+        account_rows = conn.execute(
+            """
+            SELECT id, name, type, opening_balance, order_index, is_protected, created_at
+            FROM accounts
+            WHERE user_id = ?
+            ORDER BY
+              CASE type WHEN 'asset' THEN 0 WHEN 'liability' THEN 1 ELSE 99 END,
+              order_index ASC,
+              created_at ASC,
+              id ASC
+            """,
+            (user_id,),
+        ).fetchall()
     for row in account_rows:
         rows.append(
             [
                 TYPE_LABELS[str(row["type"] or "")],
                 str(row["name"] or ""),
+                str(row["currency"] or "TWD") if account_has_currency else "TWD",
                 str(int(row["opening_balance"] or 0)),
                 str(int(row["order_index"] or 0)),
                 "是" if int(row["is_protected"] or 0) else "否",

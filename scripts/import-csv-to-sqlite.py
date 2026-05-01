@@ -14,6 +14,7 @@ from sqlite_migration_lib import (
     ITEM_TYPE_MAP,
     PROTECTED_ITEMS,
     ItemRef,
+    has_column,
     load_schema,
     next_id,
     normalize_date,
@@ -39,6 +40,7 @@ def parse_args() -> argparse.Namespace:
 def import_items(connection: sqlite3.Connection, rows: list[dict[str, str]], user_id: str) -> dict[str, ItemRef]:
     item_refs: dict[str, ItemRef] = {}
     common_summary_rows: list[tuple[str, str, int, str]] = []
+    account_has_currency = has_column(connection, "accounts", "currency")
 
     for index, row in enumerate(rows, start=2):
         label = normalize_header(row.get("類別", ""))
@@ -56,15 +58,25 @@ def import_items(connection: sqlite3.Connection, rows: list[dict[str, str]], use
         item_type = ITEM_TYPE_MAP[label]
         if item_type in {"asset", "liability"}:
             item_id = next_id("acc")
+            currency = normalize_header(row.get("幣別", "")).upper() or "TWD"
             opening_balance = parse_int(row.get("期初餘額", ""), f"第 {index} 列的期初餘額", allow_blank=True, default=0)
             is_protected = int(("accounts", item_type, name) in PROTECTED_ITEMS)
-            connection.execute(
-                """
-                INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (item_id, user_id, name, item_type, opening_balance, order_index, is_protected),
-            )
+            if account_has_currency:
+                connection.execute(
+                    """
+                    INSERT INTO accounts (id, user_id, name, type, currency, opening_balance, order_index, is_protected)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (item_id, user_id, name, item_type, currency, opening_balance, order_index, is_protected),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (item_id, user_id, name, item_type, opening_balance, order_index, is_protected),
+                )
             item_refs[name] = ItemRef("accounts", item_type, item_id, name)
             continue
 
@@ -111,6 +123,7 @@ def import_transactions(
     item_refs: dict[str, ItemRef],
 ) -> int:
     inserted = 0
+    transaction_has_dual_amount = has_column(connection, "transactions", "from_amount") and has_column(connection, "transactions", "to_amount")
     for index, row in enumerate(rows, start=2):
         from_name = normalize_header(row.get("從項目", ""))
         to_name = normalize_header(row.get("至項目", ""))
@@ -124,25 +137,63 @@ def import_transactions(
         if not to_ref:
             raise ValueError(f"第 {index} 列找不到至項目：{to_name}")
 
-        connection.execute(
-            """
-            INSERT INTO transactions (
-              id, user_id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                next_id("txn"),
-                user_id,
-                normalize_date(row.get("日期", "")),
-                transaction_kind(from_ref.collection),
-                from_ref.item_id,
-                transaction_kind(to_ref.collection),
-                to_ref.item_id,
-                parse_int(row.get("金額", ""), f"第 {index} 列的金額"),
-                str(row.get("摘要", "") or "").strip(),
-                str(row.get("備註", "") or "").strip(),
-            ),
-        )
+        legacy_amount = str(row.get("金額", "") or "").strip()
+        from_amount_text = str(row.get("從金額", "") or "").strip()
+        to_amount_text = str(row.get("至金額", "") or "").strip()
+        if legacy_amount:
+            amount = parse_int(legacy_amount, f"第 {index} 列的金額")
+        else:
+            from_amount = parse_int(from_amount_text, f"第 {index} 列的從金額")
+            to_amount = parse_int(to_amount_text, f"第 {index} 列的至金額")
+            if from_amount != to_amount:
+                raise ValueError(
+                    f"第 {index} 列的從金額 ({from_amount}) 與至金額 ({to_amount}) 不同；目前 SQLite schema 尚未切到雙金額欄位。"
+                )
+            amount = from_amount
+
+        if transaction_has_dual_amount:
+            final_from_amount = parse_int(from_amount_text or legacy_amount, f"第 {index} 列的從金額")
+            final_to_amount = parse_int(to_amount_text or legacy_amount, f"第 {index} 列的至金額")
+            connection.execute(
+                """
+                INSERT INTO transactions (
+                  id, user_id, txn_date, from_kind, from_id, to_kind, to_id, from_amount, to_amount, note, memo
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    next_id("txn"),
+                    user_id,
+                    normalize_date(row.get("日期", "")),
+                    transaction_kind(from_ref.collection),
+                    from_ref.item_id,
+                    transaction_kind(to_ref.collection),
+                    to_ref.item_id,
+                    final_from_amount,
+                    final_to_amount,
+                    str(row.get("摘要", "") or "").strip(),
+                    str(row.get("備註", "") or "").strip(),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO transactions (
+                  id, user_id, txn_date, from_kind, from_id, to_kind, to_id, amount, note, memo
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    next_id("txn"),
+                    user_id,
+                    normalize_date(row.get("日期", "")),
+                    transaction_kind(from_ref.collection),
+                    from_ref.item_id,
+                    transaction_kind(to_ref.collection),
+                    to_ref.item_id,
+                    amount,
+                    str(row.get("摘要", "") or "").strip(),
+                    str(row.get("備註", "") or "").strip(),
+                ),
+            )
         inserted += 1
     return inserted
 

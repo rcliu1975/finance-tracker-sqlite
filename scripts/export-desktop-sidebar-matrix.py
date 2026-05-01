@@ -7,7 +7,7 @@ import json
 import locale
 from pathlib import Path
 
-from sqlite_migration_lib import connect_sqlite, list_months
+from sqlite_migration_lib import connect_sqlite, has_column, list_months
 
 
 GROUPS = [
@@ -80,19 +80,27 @@ def sort_order(items: list[dict]) -> list[dict]:
 
 
 def load_accounts(conn, user_id: str) -> list[dict]:
-    rows = conn.execute(
+    account_has_currency = has_column(conn, "accounts", "currency")
+    query = (
         """
+        SELECT id, name, type, currency, order_index, is_protected
+        FROM accounts
+        WHERE user_id = ?
+        """
+        if account_has_currency
+        else """
         SELECT id, name, type, order_index, is_protected
         FROM accounts
         WHERE user_id = ?
-        """,
-        (user_id,),
-    ).fetchall()
+        """
+    )
+    rows = conn.execute(query, (user_id,)).fetchall()
     return [
         {
             "id": str(row["id"] or ""),
             "name": str(row["name"] or ""),
             "type": str(row["type"] or ""),
+            "currency": str(row["currency"] or "TWD") if account_has_currency else "TWD",
             "order_index": int(row["order_index"] or 0),
             "is_protected": int(row["is_protected"] or 0),
         }
@@ -122,9 +130,14 @@ def load_categories(conn, user_id: str) -> list[dict]:
 
 
 def load_monthly_snapshots(conn, user_id: str) -> dict[str, dict]:
+    snapshot_has_base_values = has_column(conn, "monthly_snapshots", "closing_base_values_json")
+    columns = ["month", "closing_balances_json"]
+    if snapshot_has_base_values:
+        columns.append("closing_base_values_json")
+    columns.extend(["income_total", "expense_total", "category_totals_json", "net_worth"])
     rows = conn.execute(
-        """
-        SELECT month, closing_balances_json, income_total, expense_total, category_totals_json, net_worth
+        f"""
+        SELECT {', '.join(columns)}
         FROM monthly_snapshots
         WHERE user_id = ?
         ORDER BY month ASC
@@ -135,6 +148,7 @@ def load_monthly_snapshots(conn, user_id: str) -> dict[str, dict]:
     for row in rows:
         snapshots[str(row["month"] or "")] = {
             "closing_balances": json.loads(str(row["closing_balances_json"] or "{}")),
+            "closing_base_values": json.loads(str(row["closing_base_values_json"] or "{}")) if snapshot_has_base_values else {},
             "income_total": int(row["income_total"] or 0),
             "expense_total": int(row["expense_total"] or 0),
             "category_totals": json.loads(str(row["category_totals_json"] or "{}")),
@@ -181,7 +195,9 @@ def build_rows(accounts: list[dict], categories: list[dict]) -> list[dict]:
                     "name": group_label,
                     "id": "",
                     "value_getter": lambda snapshot, item_type=group_key: sum(
-                        int(snapshot["closing_balances"].get(item["id"], 0) or 0)
+                        int(
+                            (snapshot.get("closing_base_values") or snapshot["closing_balances"]).get(item["id"], 0) or 0
+                        )
                         for item in accounts_by_type[item_type]
                     ),
                 }
@@ -200,15 +216,10 @@ def build_rows(accounts: list[dict], categories: list[dict]) -> list[dict]:
             continue
 
         group_items = categories_by_type[group_key]
-        if group_key == "income":
-            getter = lambda snapshot: snapshot["income_total"]
-        elif group_key == "expense":
-            getter = lambda snapshot: snapshot["expense_total"]
-        else:
-            getter = lambda snapshot, item_type=group_key: sum(
-                int(snapshot["category_totals"].get(item["id"], 0) or 0)
-                for item in categories_by_type[item_type]
-            )
+        getter = lambda snapshot, item_type=group_key: sum(
+            int(snapshot["category_totals"].get(item["id"], 0) or 0)
+            for item in categories_by_type[item_type]
+        )
 
         rows.append(
             {

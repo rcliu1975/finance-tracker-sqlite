@@ -117,6 +117,7 @@ const state = {
   derivedDataRevision: 0,
   derivedDataCache: {
     accountBalances: new Map(),
+    accountBaseValues: new Map(),
     desktopBalanceMaps: new Map(),
     filteredTransactions: new Map(),
     chartData: new Map(),
@@ -166,12 +167,38 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+const BASE_CURRENCY = "TWD";
+const CHART_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/chart.js";
+let chartScriptLoadPromise = null;
+const decimalFmt = new Intl.NumberFormat("zh-TW", {
+  maximumFractionDigits: 0
+});
 const fmt = (value) =>
   new Intl.NumberFormat("zh-TW", {
     style: "currency",
-    currency: "TWD",
+    currency: BASE_CURRENCY,
     maximumFractionDigits: 0
   }).format(Number(value || 0));
+
+function normalizeCurrencyCode(value) {
+  return String(value || BASE_CURRENCY).trim().toUpperCase() || BASE_CURRENCY;
+}
+
+function getAccountCurrency(account) {
+  return normalizeCurrencyCode(account?.currency || BASE_CURRENCY);
+}
+
+function isForeignCurrencyCode(currency) {
+  return normalizeCurrencyCode(currency) !== BASE_CURRENCY;
+}
+
+function isForeignCurrencyAccount(account) {
+  return inferAccountType(account) && isForeignCurrencyCode(getAccountCurrency(account));
+}
+
+function fmtAccountAmount(value, currency = BASE_CURRENCY) {
+  return `${normalizeCurrencyCode(currency)} ${decimalFmt.format(Number(value || 0))}`;
+}
 
 function showMessage(message, title = "訊息") {
   const modal = $("messageModal");
@@ -199,6 +226,7 @@ function closeMessageModal() {
 function invalidateDerivedDataCache() {
   state.derivedDataRevision += 1;
   state.derivedDataCache.accountBalances.clear();
+  state.derivedDataCache.accountBaseValues.clear();
   state.derivedDataCache.desktopBalanceMaps.clear();
   state.derivedDataCache.filteredTransactions.clear();
   state.derivedDataCache.chartData.clear();
@@ -364,6 +392,8 @@ async function bootstrap() {
     await loadAll();
   }
   bindEvents();
+  syncTransactionAmountFields("mobile", false);
+  syncTransactionAmountFields("desktop", false);
   await applyRecurringIfNeeded();
   await refreshSQLiteBridgeAdminStatus({ silent: true });
   renderAll();
@@ -448,7 +478,7 @@ async function ensureProtectedItems(accounts, categories) {
         return;
       }
 
-      const defaults = protectedItem.collection === "accounts" ? { balance: 0 } : {};
+      const defaults = protectedItem.collection === "accounts" ? { balance: 0, currency: BASE_CURRENCY } : {};
       await dataBackend.createUserCollectionDocument(protectedItem.collection, {
         ...payload,
         ...defaults,
@@ -711,6 +741,7 @@ function bindEvents() {
     localStorage.setItem("financeTransactionSourceType", state.transactionSourceType);
     renderSourceItemOptions();
     renderCommonSummaryOptions();
+    syncTransactionAmountFields("mobile", false);
   });
 
   $("destinationTypeSelect").addEventListener("change", (event) => {
@@ -718,18 +749,21 @@ function bindEvents() {
     localStorage.setItem("financeTransactionDestinationType", state.transactionDestinationType);
     renderDestinationItemOptions(state.transactionDestinationType);
     renderCommonSummaryOptions();
+    syncTransactionAmountFields("mobile", false);
   });
   $("desktopSourceTypeSelect").addEventListener("change", () => {
     state.transactionSourceType = $("desktopSourceTypeSelect").value;
     localStorage.setItem("financeTransactionSourceType", state.transactionSourceType);
     renderDesktopSourceItemOptions();
     renderCommonSummaryOptions();
+    syncTransactionAmountFields("desktop", false);
   });
   $("desktopDestinationTypeSelect").addEventListener("change", (event) => {
     state.transactionDestinationType = event.currentTarget.value;
     localStorage.setItem("financeTransactionDestinationType", state.transactionDestinationType);
     renderDesktopDestinationItemOptions(state.transactionDestinationType);
     renderCommonSummaryOptions();
+    syncTransactionAmountFields("desktop", false);
   });
 
   $("transactionForm").addEventListener("submit", handleTransactionSubmit);
@@ -881,6 +915,10 @@ function bindEvents() {
   $("desktopDestinationSelect").addEventListener("change", renderCommonSummaryOptions);
   $("sourceSelect").addEventListener("change", renderCommonSummaryOptions);
   $("destinationSelect").addEventListener("change", renderCommonSummaryOptions);
+  $("desktopSourceSelect").addEventListener("change", () => syncTransactionAmountFields("desktop", false));
+  $("desktopDestinationSelect").addEventListener("change", () => syncTransactionAmountFields("desktop", false));
+  $("sourceSelect").addEventListener("change", () => syncTransactionAmountFields("mobile", false));
+  $("destinationSelect").addEventListener("change", () => syncTransactionAmountFields("mobile", false));
   $("desktopSaveSummaryBtn").addEventListener("click", () => saveSummaryFromInput("desktopSummaryInput", "desktop"));
   $("mobileSaveSummaryBtn").addEventListener("click", () => saveSummaryFromInput("mobileSummaryInput", "mobile"));
   bindSummaryInput("desktopSummaryInput", "desktopSummaryMenu", "desktop");
@@ -962,7 +1000,7 @@ async function handleEmailAuth(event) {
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "");
   if (action === "register" && !appRuntime.supportsCredentialRegistration) {
-    $("sessionStatus").textContent = "註冊未啟用";
+    $("sessionStatus").textContent = "只開放登入";
     $("sessionError").textContent = "目前這個 SQLite bridge 只開放既有帳號登入。";
     return;
   }
@@ -993,7 +1031,9 @@ function formatAuthError(action, error) {
     "auth/invalid-email": "Email 格式不正確。",
     "auth/missing-password": "請輸入密碼。",
     "auth/weak-password": "密碼至少需要 6 個字元。",
-    "auth/user-not-found": "找不到這個帳號，請先註冊。",
+    "auth/user-not-found": appRuntime.supportsCredentialRegistration
+      ? "找不到這個帳號，請先註冊。"
+      : "找不到這個帳號，請確認 sqlite:frontend 啟動時指定的 Email。",
     "auth/wrong-password": "密碼不正確。",
     "auth/network-request-failed": "網路連線失敗，請稍後再試。",
     "auth/too-many-requests": "嘗試次數過多，請稍後再試。"
@@ -1016,14 +1056,7 @@ async function handleTransactionSubmit(event) {
     return;
   }
 
-  const payload = {
-    date: String(formData.get("date") || ""),
-    fromItem,
-    toItem,
-    amount: Number(formData.get("amount")),
-    note: String(formData.get("note") || ""),
-    memo: String(formData.get("memo") || "")
-  };
+  const payload = buildTransactionPayloadFromForm(event.target);
   if (!isValidTransactionPayload(payload)) {
     showMessage("請確認日期與金額格式正確。", "資料錯誤");
     return;
@@ -1071,6 +1104,7 @@ function openDesktopTransactionModal() {
   $("desktopTransactionModal").classList.remove("hidden");
   $("desktopTransactionModal").setAttribute("aria-hidden", "false");
   setTodayDefault();
+  syncTransactionAmountFields("desktop", false);
   $("desktopTransactionForm").querySelector('input[name="amount"]')?.focus();
 }
 
@@ -1141,13 +1175,16 @@ function fillMobileTransactionForm(transaction) {
 
   form.elements.date.value = transaction.date || "";
   syncMobileDateField();
-  form.elements.amount.value = transaction.amount || "";
+  form.elements.amount.value = getTransactionAmount(transaction) || "";
+  form.elements.fromAmount.value = getTransactionSideAmount(transaction, "from") || "";
+  form.elements.toAmount.value = getTransactionSideAmount(transaction, "to") || "";
   form.elements.note.value = transaction.note || "";
   form.elements.memo.value = transaction.memo || "";
+  syncTransactionAmountFields("mobile");
   document.querySelector("#ledger .card h3").textContent = "編輯記錄";
   form.querySelector('button[type="submit"]').textContent = "儲存修改";
   $("cancelMobileEditBtn").classList.remove("hidden");
-  form.elements.amount.focus();
+  (getTransactionFormMode("mobile").usesSplitAmounts ? form.elements.fromAmount : form.elements.amount).focus();
 }
 
 function resetMobileTransactionForm() {
@@ -1156,11 +1193,79 @@ function resetMobileTransactionForm() {
   document.querySelector("#ledger .card h3").textContent = "新增記錄";
   $("cancelMobileEditBtn").classList.add("hidden");
   $("transactionForm").querySelector('button[type="submit"]').textContent = "新增記錄";
+  syncTransactionAmountFields("mobile", false);
 }
 
 function renderMobileItemFields() {
   const isAccount = isDesktopAccountType($("mobileItemTypeSelect").value);
   $("mobileItemBalanceField").classList.toggle("hidden", !isAccount);
+  $("mobileItemCurrencyField").classList.toggle("hidden", !isAccount);
+}
+
+function getTransactionFormMode(formKind = "mobile") {
+  const sourceSelectId = formKind === "desktop" ? "desktopSourceSelect" : "sourceSelect";
+  const destinationSelectId = formKind === "desktop" ? "desktopDestinationSelect" : "destinationSelect";
+  const fromItem = buildTransactionItem(String($(sourceSelectId)?.value || ""));
+  const toItem = buildTransactionItem(String($(destinationSelectId)?.value || ""));
+  return {
+    fromItem,
+    toItem,
+    usesSplitAmounts: usesSplitAmountInputs(fromItem, toItem)
+  };
+}
+
+function syncTransactionAmountFields(formKind = "mobile", preserveValues = true) {
+  const formId = formKind === "desktop" ? "desktopTransactionForm" : "transactionForm";
+  const singleAmountLabelId = formKind === "desktop" ? "desktopSingleAmountLabel" : "mobileSingleAmountLabel";
+  const singleAmountFieldId = formKind === "desktop" ? "desktopSingleAmountField" : "mobileSingleAmountField";
+  const fromFieldId = formKind === "desktop" ? "desktopFromAmountField" : "mobileFromAmountField";
+  const toFieldId = formKind === "desktop" ? "desktopToAmountField" : "mobileToAmountField";
+  const form = $(formId);
+  if (!form) {
+    return;
+  }
+  const mode = getTransactionFormMode(formKind);
+  const amountInput = form.elements.amount;
+  const fromAmountInput = form.elements.fromAmount;
+  const toAmountInput = form.elements.toAmount;
+  const singleAmountLabel = $(singleAmountLabelId);
+  $(singleAmountFieldId)?.classList.toggle("hidden", mode.usesSplitAmounts);
+  $(fromFieldId)?.classList.toggle("hidden", !mode.usesSplitAmounts);
+  $(toFieldId)?.classList.toggle("hidden", !mode.usesSplitAmounts);
+  if (singleAmountLabel) {
+    singleAmountLabel.textContent = mode.usesSplitAmounts ? "本位幣金額" : "金額";
+  }
+  amountInput.required = !mode.usesSplitAmounts;
+  fromAmountInput.required = mode.usesSplitAmounts;
+  toAmountInput.required = mode.usesSplitAmounts;
+  if (mode.usesSplitAmounts) {
+    if (!preserveValues || !Number(fromAmountInput.value || 0)) {
+      fromAmountInput.value = amountInput.value || fromAmountInput.value || "";
+    }
+    if (!preserveValues || !Number(toAmountInput.value || 0)) {
+      toAmountInput.value = amountInput.value || toAmountInput.value || "";
+    }
+  } else if (!preserveValues || !amountInput.value) {
+    amountInput.value = toAmountInput.value || fromAmountInput.value || amountInput.value || "";
+  }
+}
+
+function buildTransactionPayloadFromForm(form) {
+  const formKind = form.id === "desktopTransactionForm" ? "desktop" : "mobile";
+  const mode = getTransactionFormMode(formKind);
+  const amount = Number(form.elements.amount.value || 0);
+  const fromAmount = mode.usesSplitAmounts ? Number(form.elements.fromAmount.value || 0) : amount;
+  const toAmount = mode.usesSplitAmounts ? Number(form.elements.toAmount.value || 0) : amount;
+  return {
+    date: String(form.elements.date.value || ""),
+    fromItem: mode.fromItem,
+    toItem: mode.toItem,
+    amount: toAmount,
+    fromAmount,
+    toAmount,
+    note: String(form.elements.note.value || ""),
+    memo: String(form.elements.memo.value || "")
+  };
 }
 
 function normalizeItemName(value) {
@@ -1226,6 +1331,7 @@ async function saveMobileItem(event) {
 
   if (isDesktopAccountType(type)) {
     const balance = parseFiniteNumber(formData.get("balance") || 0);
+    const currency = normalizeCurrencyCode(formData.get("currency") || BASE_CURRENCY);
     if (balance === null) {
       showMessage("請確認期初餘額為有效數字。", "資料錯誤");
       return;
@@ -1233,6 +1339,7 @@ async function saveMobileItem(event) {
     const itemRef = await dataBackend.createUserCollectionDocument("accounts", {
       name,
       balance,
+      currency,
       type,
       order,
       createdAt: Date.now()
@@ -1350,10 +1457,13 @@ function fillDesktopTransactionForm(transaction) {
   });
 
   form.elements.date.value = transaction.date || "";
-  form.elements.amount.value = transaction.amount || "";
+  form.elements.amount.value = getTransactionAmount(transaction) || "";
+  form.elements.fromAmount.value = getTransactionSideAmount(transaction, "from") || "";
+  form.elements.toAmount.value = getTransactionSideAmount(transaction, "to") || "";
   form.elements.note.value = transaction.note || "";
   form.elements.memo.value = transaction.memo || "";
-  form.elements.amount.focus();
+  syncTransactionAmountFields("desktop");
+  (getTransactionFormMode("desktop").usesSplitAmounts ? form.elements.fromAmount : form.elements.amount).focus();
 }
 
 function fillTransactionItemControls({
@@ -1404,10 +1514,12 @@ function openDesktopItemModal(itemId = "") {
   $("desktopItemTitle").textContent = `${item ? "修改" : "新增"}項目 - ${desktopSettingsTypeLabel(state.desktopSettingsType)}`;
   $("desktopItemForm").elements.name.value = item?.name || "";
   $("desktopItemForm").elements.balance.value = item?.balance ?? 0;
+  $("desktopItemForm").elements.currency.value = item?.currency || BASE_CURRENCY;
   $("desktopItemForm").elements.order.value = item?.order ?? getNextItemOrder(state.desktopSettingsType);
   $("desktopItemForm").elements.name.disabled = protectedItem;
   $("desktopItemForm").elements.order.disabled = protectedItem;
   $("desktopItemBalanceField").classList.toggle("hidden", !isDesktopAccountType(state.desktopSettingsType));
+  $("desktopItemCurrencyField").classList.toggle("hidden", !isDesktopAccountType(state.desktopSettingsType));
   $("desktopItemModal").classList.remove("hidden");
   $("desktopItemModal").setAttribute("aria-hidden", "false");
   $("desktopItemForm").elements.name.focus();
@@ -1427,14 +1539,12 @@ function renderSessionState(user) {
     $("appShell").classList.add("hidden");
     $("emailSessionForm").classList.toggle("hidden", !appRuntime.supportsCredentialSession);
     $("sessionControls").classList.add("hidden");
-    if (!$("sessionError").textContent) {
-      if (appRuntime.supportsCredentialSession) {
-        $("sessionStatus").textContent = appRuntime.supportsCredentialRegistration
-          ? "請輸入 Email 與密碼登入或註冊"
-          : "請輸入 Email 與密碼登入";
-      } else {
+    if (appRuntime.supportsCredentialSession) {
+      $("sessionStatus").textContent = appRuntime.supportsCredentialRegistration
+        ? "請輸入 Email 與密碼登入或註冊"
+        : "請輸入 Email 與密碼登入";
+    } else if (!$("sessionError").textContent) {
         $("sessionStatus").textContent = `等待 ${providerLabel} 後端就緒`;
-      }
     }
     return;
   }
@@ -1550,6 +1660,9 @@ function renderAll() {
   renderCredentialFormOptions();
   renderDesktopMode();
   renderOptions();
+  renderMobileItemFields();
+  syncTransactionAmountFields("mobile");
+  syncTransactionAmountFields("desktop");
   renderOverview();
   renderTransactionRangeFilter();
   renderTransactions();
@@ -1740,10 +1853,11 @@ function renderDesktopSidebar() {
   }
 
   const balances = buildAccountBalances(state.desktopDate);
+  const baseValues = buildAccountBaseValues(state.desktopDate);
   const monthSnapshot = getMonthlySnapshot(state.desktopDate);
-  const groups = buildDesktopSidebarGroups(balances, monthSnapshot);
-  const assetTotal = getAccountBalanceTotal("asset", balances);
-  const liabilityTotal = getAccountBalanceTotal("liability", balances);
+  const groups = buildDesktopSidebarGroups(balances, baseValues, monthSnapshot);
+  const assetTotal = getAccountBalanceTotal("asset", balances, monthSnapshot, baseValues);
+  const liabilityTotal = getAccountBalanceTotal("liability", balances, monthSnapshot, baseValues);
   const structureRenderKey = getDesktopSidebarStructureRenderKey(groups);
 
   $("desktopNetWorth").textContent = fmt(assetTotal - liabilityTotal);
@@ -1774,6 +1888,7 @@ function renderDesktopSidebar() {
                   <div class="desktop-account-meta">
                     <strong data-desktop-item-name="${escapeAttr(item.key)}">${escapeHtml(item.name)}</strong>
                     <span data-desktop-item-value="${escapeAttr(item.key)}">${item.valueText}</span>
+                    ${item.baseValueText ? `<small data-desktop-item-base-value="${escapeAttr(item.key)}">${item.baseValueText}</small>` : ""}
                   </div>
                 </button>`;
               })
@@ -1806,6 +1921,10 @@ function syncDesktopSidebarContent(groups) {
       const valueNode = document.querySelector(`[data-desktop-item-value="${selectorKey}"]`);
       if (valueNode && valueNode.textContent !== item.valueText) {
         valueNode.textContent = item.valueText;
+      }
+      const baseValueNode = document.querySelector(`[data-desktop-item-base-value="${selectorKey}"]`);
+      if (baseValueNode && baseValueNode.textContent !== (item.baseValueText || "")) {
+        baseValueNode.textContent = item.baseValueText || "";
       }
     });
   });
@@ -2006,7 +2125,9 @@ function renderDesktopSettings() {
     $("desktopSettingsList").innerHTML =
       items
         .map((item) => {
-          const amount = isDesktopAccountType(state.desktopSettingsType) ? `: ${fmt(item.balance || 0)}` : "";
+          const amount = isDesktopAccountType(state.desktopSettingsType)
+            ? `: ${fmtAccountAmount(item.balance || 0, item.currency || BASE_CURRENCY)}`
+            : "";
           return `<button type="button" class="desktop-settings-item" data-settings-item="${escapeAttr(item.key)}">
             <span class="desktop-settings-icon">${escapeHtml(item.icon)}</span>
             <span>${escapeHtml(item.name)}<strong>${amount}</strong><small>次序 ${getItemOrder(item)}</small></span>
@@ -2033,7 +2154,10 @@ function renderDesktopSettings() {
 
 function getDesktopSettingsListRenderKey(items) {
   return `${state.desktopSettingsType}:${items
-    .map((item) => `${item.key}:${item.name}:${item.order}:${Number(item.balance || 0)}:${item.protected ? "1" : "0"}`)
+    .map(
+      (item) =>
+        `${item.key}:${item.name}:${item.order}:${Number(item.balance || 0)}:${item.currency || ""}:${item.protected ? "1" : "0"}`
+    )
     .join("|")}`;
 }
 
@@ -2115,6 +2239,7 @@ function getDesktopSettingsItems(type) {
         collection: "accounts",
         name: account.name,
         balance: Number(account.balance || 0),
+        currency: getAccountCurrency(account),
         order: getItemOrder(account),
         icon: accountIcon(account, type),
         type,
@@ -2312,6 +2437,7 @@ async function saveDesktopSettingsItem(event) {
 
   if (isDesktopAccountType(type)) {
     const balance = parseFiniteNumber(formData.get("balance") || 0);
+    const currency = normalizeCurrencyCode(formData.get("currency") || BASE_CURRENCY);
     if (balance === null) {
       showMessage("請確認期初餘額為有效數字。", "資料錯誤");
       return;
@@ -2319,6 +2445,7 @@ async function saveDesktopSettingsItem(event) {
     const payload = {
       name,
       balance,
+      currency,
       type,
       order
     };
@@ -2459,9 +2586,9 @@ function populateDesktopYearOptions() {
   const currentValue = String(select.value || "").trim();
   const options = [];
   for (let year = maxYear; year >= minYear; year -= 1) {
-    options.push(`<option value="${year}">${year}</option>`);
+    options.push({ value: String(year), label: String(year) });
   }
-  select.innerHTML = options.join("");
+  replaceSelectOptions(select, options);
   if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
     select.value = currentValue;
   }
@@ -2500,16 +2627,21 @@ async function handleDesktopDateAction(actionIndex) {
   renderTransactions();
 }
 
-function buildDesktopSidebarGroups(balances, monthSnapshot = null) {
+function getSnapshotAccountBaseValue(snapshot, accountId, fallbackValue = 0) {
+  return Number(snapshot?.closingBaseValues?.[accountId] ?? fallbackValue ?? 0);
+}
+
+function buildDesktopSidebarGroups(balances, baseValues, monthSnapshot = null) {
   const monthTransactions = getDesktopLoadedMonthTransactions();
 
-  const assetItems = buildDesktopAccountItems("asset", balances);
-  const liabilityItems = buildDesktopAccountItems("liability", balances);
+  const assetItems = buildDesktopAccountItems("asset", balances, baseValues, monthSnapshot);
+  const liabilityItems = buildDesktopAccountItems("liability", balances, baseValues, monthSnapshot);
 
   const incomeItems = buildDesktopCategoryItems("income", monthTransactions, monthSnapshot);
   const expenseItems = buildDesktopCategoryItems("expense", monthTransactions, monthSnapshot);
   const nonOperatingIncomeItems = buildDesktopCategoryItems("nonOperatingIncome", monthTransactions, monthSnapshot);
   const nonOperatingExpenseItems = buildDesktopCategoryItems("nonOperatingExpense", monthTransactions, monthSnapshot);
+  const sumCategoryItems = (items) => items.reduce((sum, item) => sum + parseCurrency(item.valueText), 0);
 
   return [
     {
@@ -2517,55 +2649,47 @@ function buildDesktopSidebarGroups(balances, monthSnapshot = null) {
       label: "資產",
       badge: "A",
       items: assetItems,
-      totalText: fmt(getAccountBalanceTotal("asset", balances))
+      totalText: fmt(getAccountBalanceTotal("asset", balances, monthSnapshot, baseValues))
     },
     {
       key: "liability",
       label: "負債",
       badge: "L",
       items: liabilityItems,
-      totalText: fmt(getAccountBalanceTotal("liability", balances))
+      totalText: fmt(getAccountBalanceTotal("liability", balances, monthSnapshot, baseValues))
     },
     {
       key: "income",
       label: "收入",
       badge: "I",
       items: incomeItems,
-      totalText: fmt(monthSnapshot ? getSnapshotMonthIncome(state.desktopDate) : incomeItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0))
+      totalText: fmt(sumCategoryItems(incomeItems))
     },
     {
       key: "expense",
       label: "支出",
       badge: "E",
       items: expenseItems,
-      totalText: fmt(monthSnapshot ? getSnapshotMonthExpense(state.desktopDate) : expenseItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0))
+      totalText: fmt(sumCategoryItems(expenseItems))
     },
     {
       key: "nonOperatingIncome",
       label: "業外收入",
       badge: "N",
       items: nonOperatingIncomeItems,
-      totalText: fmt(
-        monthSnapshot
-          ? nonOperatingIncomeItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-          : nonOperatingIncomeItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-      )
+      totalText: fmt(sumCategoryItems(nonOperatingIncomeItems))
     },
     {
       key: "nonOperatingExpense",
       label: "業外支出",
       badge: "O",
       items: nonOperatingExpenseItems,
-      totalText: fmt(
-        monthSnapshot
-          ? nonOperatingExpenseItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-          : nonOperatingExpenseItems.reduce((sum, item) => sum + parseCurrency(item.valueText), 0)
-      )
+      totalText: fmt(sumCategoryItems(nonOperatingExpenseItems))
     }
   ];
 }
 
-function buildDesktopAccountItems(type, balances) {
+function buildDesktopAccountItems(type, balances, baseValues, monthSnapshot = null) {
   return state.accounts
     .filter((account) => inferAccountType(account) === type)
     .sort(sortItemsByOrder)
@@ -2573,7 +2697,13 @@ function buildDesktopAccountItems(type, balances) {
       key: `account:${account.id}`,
       name: account.name,
       icon: accountIcon(account, type),
-      valueText: fmt(balances[account.id] ?? account.balance ?? 0)
+      valueText: fmtAccountAmount(
+        balances[account.id] ?? account.balance ?? 0,
+        getAccountCurrency(account)
+      ),
+      baseValueText: isForeignCurrencyAccount(account)
+        ? fmt(monthSnapshot ? getSnapshotAccountBaseValue(monthSnapshot, account.id, baseValues[account.id] ?? 0) : baseValues[account.id] ?? 0)
+        : ""
     }));
 }
 
@@ -2604,10 +2734,19 @@ function buildDesktopCategoryItems(type, monthTransactions, monthSnapshot = null
     });
 }
 
-function getAccountBalanceTotal(type, balances) {
+function getAccountBalanceTotal(type, balances, monthSnapshot = null, baseValues = null) {
   return state.accounts
     .filter((account) => inferAccountType(account) === type)
-    .reduce((sum, account) => sum + Number(balances[account.id] ?? account.balance ?? 0), 0);
+    .reduce(
+      (sum, account) =>
+        sum +
+        Number(
+          monthSnapshot
+            ? getSnapshotAccountBaseValue(monthSnapshot, account.id, baseValues?.[account.id] ?? balances[account.id] ?? account.balance ?? 0)
+            : baseValues?.[account.id] ?? balances[account.id] ?? account.balance ?? 0
+        ),
+      0
+    );
 }
 
 function parseCurrency(valueText) {
@@ -2671,9 +2810,6 @@ function renderTransactionRangeFilter() {
 }
 
 function renderOptions() {
-  const accountOptions = state.accounts
-    .map((account) => `<option value="${escapeAttr(account.id)}">${escapeHtml(account.name)}</option>`)
-    .join("");
   renderSourceTypeOptions();
   renderSourceItemOptions();
   renderDestinationTypeOptions();
@@ -2689,10 +2825,34 @@ function renderOptions() {
   setTodayDefault();
 }
 
+function buildOptionNode(value, label) {
+  const option = document.createElement("option");
+  option.value = String(value ?? "");
+  option.textContent = String(label ?? "");
+  return option;
+}
+
+function replaceSelectOptions(select, options, { emptyLabel = "" } = {}) {
+  const fragment = document.createDocumentFragment();
+  if (options.length) {
+    options.forEach((option) => {
+      fragment.appendChild(buildOptionNode(option.value, option.label));
+    });
+  } else if (emptyLabel) {
+    fragment.appendChild(buildOptionNode("", emptyLabel));
+  }
+  select.replaceChildren(fragment);
+}
+
 function renderCommonSummaryOptions() {
-  $("commonSummaryList").innerHTML = getCommonSummaries(getActiveSummaryScopeKey())
-    .map((summary) => `<option value="${escapeAttr(summary)}"></option>`)
-    .join("");
+  const datalist = $("commonSummaryList");
+  datalist.replaceChildren(
+    ...getCommonSummaries(getActiveSummaryScopeKey()).map((summary) => {
+      const option = document.createElement("option");
+      option.value = String(summary || "");
+      return option;
+    })
+  );
   renderSummaryMenu("desktopSummaryInput", "desktopSummaryMenu", "desktop");
   renderSummaryMenu("mobileSummaryInput", "mobileSummaryMenu", "mobile");
   updateSaveSummaryButtons();
@@ -2775,9 +2935,15 @@ function hideSummaryMenus() {
 function renderSummaryMenu(inputId, menuId, formKind) {
   const menu = $(menuId);
   const scopeKey = getSummaryScopeKey(formKind);
-  menu.innerHTML = getCommonSummaries(scopeKey)
-    .map((summary) => `<button type="button" data-summary="${escapeAttr(summary)}">${escapeHtml(summary)}</button>`)
-    .join("");
+  const fragment = document.createDocumentFragment();
+  getCommonSummaries(scopeKey).forEach((summary) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.summary = String(summary || "");
+    button.textContent = String(summary || "");
+    fragment.appendChild(button);
+  });
+  menu.replaceChildren(fragment);
   menu.querySelectorAll("[data-summary]").forEach((button) => {
     button.addEventListener("click", () => {
       $(inputId).value = button.dataset.summary || "";
@@ -2806,12 +2972,17 @@ function renderCommonSummaryFields() {
   const summaries = getCommonSummaries(scopeKey);
   const scopeLabel = getSummaryScopeLabel(scopeKey);
   $("commonSummaryTitle").textContent = `編輯常用摘要 - ${scopeLabel}`;
-  $("commonSummaryFields").innerHTML = Array.from({ length: 6 }, (_, index) => {
-    return `<label>
-      ${escapeHtml(scopeLabel)} 常用摘要 ${index + 1}
-      <input name="summary" value="${escapeAttr(summaries[index] || "")}" />
-    </label>`;
-  }).join("");
+  const fragment = document.createDocumentFragment();
+  Array.from({ length: 6 }, (_, index) => {
+    const label = document.createElement("label");
+    label.append(`${scopeLabel} 常用摘要 ${index + 1}`);
+    const input = document.createElement("input");
+    input.name = "summary";
+    input.value = String(summaries[index] || "");
+    label.appendChild(input);
+    fragment.appendChild(label);
+  });
+  $("commonSummaryFields").replaceChildren(fragment);
 }
 
 function saveCommonSummaryForm(event) {
@@ -2903,7 +3074,10 @@ function renderDesktopSourceTypeOptions() {
 function renderTransactionTypeOptions(selectId, selectedValue, options) {
   const select = $(selectId);
   const previousValue = select.value || selectedValue;
-  select.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join("");
+  replaceSelectOptions(
+    select,
+    options.map((option) => ({ value: option.value, label: option.label }))
+  );
 
   const nextValue = options.some((option) => option.value === previousValue) ? previousValue : options[0].value;
   select.value = nextValue;
@@ -2927,13 +3101,13 @@ function renderSourceItemOptionsFor(typeSelectId, itemSelectId) {
       ? state.categories
           .filter((category) => category.type === accountType)
           .sort(sortItemsByOrder)
-          .map((category) => `<option value="${escapeAttr(`category:${category.id}`)}">${escapeHtml(category.name)}</option>`)
+          .map((category) => ({ value: `category:${category.id}`, label: category.name }))
       : state.accounts
           .filter((account) => inferAccountType(account) === accountType)
           .sort(sortItemsByOrder)
-          .map((account) => `<option value="${escapeAttr(`account:${account.id}`)}">${escapeHtml(account.name)}</option>`);
+          .map((account) => ({ value: `account:${account.id}`, label: account.name }));
 
-  sourceSelect.innerHTML = options.length ? options.join("") : '<option value="">沒有可選項目</option>';
+  replaceSelectOptions(sourceSelect, options, { emptyLabel: "沒有可選項目" });
   if (previousValue && Array.from(sourceSelect.options).some((option) => option.value === previousValue)) {
     sourceSelect.value = previousValue;
   }
@@ -2975,13 +3149,13 @@ function renderDestinationItemOptionsFor(typeSelectId, itemSelectId, selectedTyp
       ? state.categories
           .filter((category) => category.type === destinationType)
           .sort(sortItemsByOrder)
-          .map((category) => `<option value="${escapeAttr(`category:${category.id}`)}">${escapeHtml(category.name)}</option>`)
+          .map((category) => ({ value: `category:${category.id}`, label: category.name }))
       : state.accounts
           .filter((account) => inferAccountType(account) === destinationType)
           .sort(sortItemsByOrder)
-          .map((account) => `<option value="${escapeAttr(`account:${account.id}`)}">${escapeHtml(account.name)}</option>`);
+          .map((account) => ({ value: `account:${account.id}`, label: account.name }));
 
-  destinationSelect.innerHTML = options.length ? options.join("") : '<option value="">沒有可選項目</option>';
+  replaceSelectOptions(destinationSelect, options, { emptyLabel: "沒有可選項目" });
   if (previousValue && Array.from(destinationSelect.options).some((option) => option.value === previousValue)) {
     destinationSelect.value = previousValue;
   }
@@ -3030,8 +3204,30 @@ function buildTransactionItem(value) {
     kind,
     id,
     name: resolved.name || "",
-    type: resolved.type || ""
+    type: resolved.type || "",
+    currency: resolved.currency || BASE_CURRENCY
   };
+}
+
+function getTransactionSideAmount(transaction, side) {
+  const key = side === "from" ? "fromAmount" : "toAmount";
+  const fallback = Number(transaction?.amount || 0);
+  const parsed = Number(transaction?.[key]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getTransactionAmount(transaction) {
+  return getTransactionSideAmount(transaction, "to");
+}
+
+function usesSplitAmountInputs(fromItem, toItem) {
+  return [fromItem, toItem].some((item) => item?.kind === "account" && isForeignCurrencyCode(item.currency));
+}
+
+function getTransactionDisplayAmountText(transaction, side = "to") {
+  const item = side === "from" ? getTransactionFromItem(transaction) : getTransactionToItem(transaction);
+  const amount = getTransactionSideAmount(transaction, side);
+  return item.kind === "account" ? fmtAccountAmount(amount, item.currency) : fmt(amount);
 }
 
 function getTransactionType(transaction) {
@@ -3074,7 +3270,6 @@ function signedItemDelta(item, side, amount) {
 }
 
 function getTransactionCategoryContribution(transaction, categoryType = "") {
-  const amount = Number(transaction.amount || 0);
   const contributions = [];
   [["from", getTransactionFromItem(transaction)], ["to", getTransactionToItem(transaction)]].forEach(([side, item]) => {
     if (item.kind !== "category" || !item.id) {
@@ -3083,7 +3278,7 @@ function getTransactionCategoryContribution(transaction, categoryType = "") {
     if (categoryType && item.type !== categoryType) {
       return;
     }
-    const delta = signedItemDelta(item, side, amount);
+    const delta = signedItemDelta(item, side, getTransactionSideAmount(transaction, side));
     if (!delta) {
       return;
     }
@@ -3093,7 +3288,6 @@ function getTransactionCategoryContribution(transaction, categoryType = "") {
 }
 
 function getTransactionAccountContribution(transaction, accountId = "") {
-  const amount = Number(transaction.amount || 0);
   let delta = 0;
   [["from", getTransactionFromItem(transaction)], ["to", getTransactionToItem(transaction)]].forEach(([side, item]) => {
     if (item.kind !== "account" || !item.id) {
@@ -3102,7 +3296,7 @@ function getTransactionAccountContribution(transaction, accountId = "") {
     if (accountId && item.id !== accountId) {
       return;
     }
-    delta += signedItemDelta(item, side, amount);
+    delta += signedItemDelta(item, side, getTransactionSideAmount(transaction, side));
   });
   return delta;
 }
@@ -3149,7 +3343,8 @@ function resolveTransactionItem(item) {
       kind: "account",
       id: item.id,
       name: account?.name || item.name || "",
-      type: account ? inferAccountType(account) : item.type || ""
+      type: account ? inferAccountType(account) : item.type || "",
+      currency: account ? getAccountCurrency(account) : normalizeCurrencyCode(item.currency || BASE_CURRENCY)
     };
   }
 
@@ -3159,7 +3354,8 @@ function resolveTransactionItem(item) {
       kind: "category",
       id: item.id,
       name: category?.name || item.name || "",
-      type: category?.type || item.type || ""
+      type: category?.type || item.type || "",
+      currency: BASE_CURRENCY
     };
   }
 
@@ -3215,7 +3411,13 @@ function isValidTransactionRoute(fromItem, toItem) {
 }
 
 function isValidTransactionPayload(transaction) {
-  return isValidDateKey(transaction.date) && Number.isFinite(transaction.amount) && transaction.amount > 0;
+  return (
+    isValidDateKey(transaction.date) &&
+    Number.isFinite(getTransactionSideAmount(transaction, "from")) &&
+    getTransactionSideAmount(transaction, "from") > 0 &&
+    Number.isFinite(getTransactionSideAmount(transaction, "to")) &&
+    getTransactionSideAmount(transaction, "to") > 0
+  );
 }
 
 function isValidDateKey(value) {
@@ -3273,11 +3475,76 @@ function buildAccountBalances(maxMonth = "") {
   return balances;
 }
 
+function buildAccountBaseValues(maxMonth = "") {
+  const cacheKey = `${state.derivedDataRevision}:${maxMonth || "*"}`;
+  const cached = state.derivedDataCache.accountBaseValues.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const snapshot = maxMonth ? getMonthlySnapshot(maxMonth) : getLatestUsableSnapshotBefore("9999-99");
+  const snapshotMonth = snapshot?.month || "";
+  const baseValues = Object.fromEntries(
+    state.accounts.map((account) => [account.id, isForeignCurrencyAccount(account) ? 0 : Number(account.balance || 0)])
+  );
+
+  if (snapshot?.closingBaseValues) {
+    state.accounts.forEach((account) => {
+      baseValues[account.id] = Number(snapshot.closingBaseValues?.[account.id] ?? baseValues[account.id] ?? 0);
+    });
+  }
+
+  for (const transaction of state.transactions) {
+    const transactionMonth = monthKey(transaction.date);
+    if (snapshotMonth && transactionMonth <= snapshotMonth) {
+      continue;
+    }
+    if (maxMonth && transactionMonth > maxMonth) {
+      continue;
+    }
+
+    state.accounts.forEach((account) => {
+      baseValues[account.id] = (baseValues[account.id] || 0) + getAccountBaseDelta(transaction, account.id);
+    });
+  }
+
+  state.derivedDataCache.accountBaseValues.set(cacheKey, baseValues);
+  return baseValues;
+}
+
+function sumSnapshotCategoryTotalsByType(snapshotMonth, matchesType) {
+  const snapshot = getMonthlySnapshot(snapshotMonth);
+  const categoryTotals = snapshot?.categoryTotals;
+  if (!categoryTotals || typeof categoryTotals !== "object") {
+    return null;
+  }
+
+  let matched = false;
+  let total = 0;
+  Object.entries(categoryTotals).forEach(([categoryId, amount]) => {
+    const category = state.categories.find((item) => item.id === categoryId);
+    if (!category || !matchesType(category.type)) {
+      return;
+    }
+    matched = true;
+    total += Number(amount || 0);
+  });
+  return matched ? total : null;
+}
+
 function getSnapshotMonthIncome(snapshotMonth) {
+  const derivedTotal = sumSnapshotCategoryTotalsByType(snapshotMonth, isIncomeCategoryType);
+  if (derivedTotal !== null) {
+    return derivedTotal;
+  }
   return Number(getMonthlySnapshot(snapshotMonth)?.incomeTotal || 0);
 }
 
 function getSnapshotMonthExpense(snapshotMonth) {
+  const derivedTotal = sumSnapshotCategoryTotalsByType(snapshotMonth, isExpenseCategoryType);
+  if (derivedTotal !== null) {
+    return derivedTotal;
+  }
   return Number(getMonthlySnapshot(snapshotMonth)?.expenseTotal || 0);
 }
 
@@ -3289,10 +3556,11 @@ function renderOverview() {
   const currentMonth = currentMonthKey();
   const currentSnapshot = getMonthlySnapshot(currentMonth);
   const balances = currentSnapshot ? null : buildAccountBalances();
+  const baseValues = currentSnapshot ? null : buildAccountBaseValues();
   const netWorth = currentSnapshot
     ? Number(currentSnapshot.netWorth || 0)
     : state.accounts.reduce((sum, account) => {
-        const value = Number((balances || {})[account.id] || 0);
+        const value = Number((baseValues || {})[account.id] ?? ((balances || {})[account.id] || 0));
         return sum + (inferAccountType(account) === "liability" ? -value : value);
       }, 0);
   $("netWorth").textContent = fmt(netWorth);
@@ -3344,10 +3612,11 @@ function renderTransactions() {
   const bodyRenderKey = getTransactionTableBodyRenderKey();
   let didRerenderBody = false;
   if (state.transactionTableBodyRenderKey !== bodyRenderKey) {
-    $("transactionTableBody").innerHTML =
-      state.transactionEditMode
-        ? renderEditableTransactions(transactions)
-        : renderReadonlyTransactions(transactions);
+    if (state.transactionEditMode) {
+      $("transactionTableBody").innerHTML = renderEditableTransactions(transactions);
+    } else {
+      renderReadonlyTransactionRows(transactions);
+    }
     state.transactionTableBodyRenderKey = bodyRenderKey;
     didRerenderBody = true;
   }
@@ -3376,18 +3645,20 @@ function renderTransactionHeaders() {
     ? `
       <th>日期(星期)</th>
       <th>從項目</th>
+      <th>從金額</th>
       <th>類型</th>
       <th>至項目</th>
-      <th>金額</th>
+      <th>至金額</th>
       <th>摘要</th>
       ${showBalance ? "<th>餘額</th>" : ""}
     `
     : `
       <th>日期(星期)</th>
       <th>從項目</th>
+      <th>從金額</th>
       <th>類型</th>
       <th>至項目</th>
-      <th>金額</th>
+      <th>至金額</th>
       <th>摘要</th>
     `;
   state.transactionTableHeaderRenderKey = renderKey;
@@ -3446,15 +3717,72 @@ function renderReadonlyTransactions(transactions) {
         return `<tr class="mobile-transaction-row" data-transaction-id="${escapeAttr(transaction.id)}" tabindex="0">
           <td>${escapeHtml(formatDesktopDateCell(transaction.date))}</td>
           <td>${escapeHtml(itemText(getTransactionFromItem(transaction)))}</td>
+          <td>${escapeHtml(getTransactionDisplayAmountText(transaction, "from"))}</td>
           <td>${transactionTypeText(transaction)}</td>
           <td>${escapeHtml(itemText(getTransactionToItem(transaction)))}</td>
-          <td>${fmt(transaction.amount)}</td>
+          <td>${escapeHtml(getTransactionDisplayAmountText(transaction, "to"))}</td>
           <td>${escapeHtml(transaction.note || "-")}</td>
         </tr>`;
       })
       .join("") ||
-    '<tr><td colspan="6">目前還沒有記錄資料。</td></tr>'
+    '<tr><td colspan="7">目前還沒有記錄資料。</td></tr>'
   );
+}
+
+function renderReadonlyTransactionRows(transactions) {
+  const body = $("transactionTableBody");
+  const fragment = document.createDocumentFragment();
+  const balanceMap = state.desktopMode ? buildDesktopBalanceMap() : {};
+  const showBalance = state.desktopMode && shouldShowDesktopBalanceColumn();
+  const emptyColspan = state.desktopMode && showBalance ? 8 : 7;
+
+  if (!transactions.length) {
+    fragment.appendChild(buildEmptyTransactionRow(emptyColspan));
+    body.replaceChildren(fragment);
+    return;
+  }
+
+  transactions.forEach((transaction) => {
+    fragment.appendChild(buildReadonlyTransactionRow(transaction, { balanceMap, showBalance }));
+  });
+  body.replaceChildren(fragment);
+}
+
+function buildReadonlyTransactionRow(transaction, { balanceMap, showBalance }) {
+  const row = document.createElement("tr");
+  row.className = state.desktopMode ? "desktop-transaction-row" : "mobile-transaction-row";
+  row.dataset.transactionId = String(transaction.id || "");
+  row.tabIndex = 0;
+
+  appendTextCell(row, formatDesktopDateCell(transaction.date));
+  appendTextCell(row, itemText(getTransactionFromItem(transaction)));
+  appendTextCell(row, getTransactionDisplayAmountText(transaction, "from"));
+  appendTextCell(row, transactionTypeText(transaction));
+  appendTextCell(row, itemText(getTransactionToItem(transaction)));
+  appendTextCell(row, getTransactionDisplayAmountText(transaction, "to"));
+  appendTextCell(row, transaction.note || "-");
+
+  if (state.desktopMode && showBalance) {
+    appendTextCell(row, formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0));
+  }
+
+  return row;
+}
+
+function buildEmptyTransactionRow(colspan) {
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = colspan;
+  cell.textContent = "目前還沒有記錄資料。";
+  row.appendChild(cell);
+  return row;
+}
+
+function appendTextCell(row, value) {
+  const cell = document.createElement("td");
+  cell.textContent = String(value ?? "");
+  row.appendChild(cell);
+  return cell;
 }
 
 function renderEditableTransactions(transactions) {
@@ -3467,22 +3795,23 @@ function renderEditableTransactions(transactions) {
       .map((transaction) => {
         return `<tr data-transaction-id="${escapeAttr(transaction.id)}" class="editable-row">
           <td><input name="date" type="date" value="${escapeAttr(transaction.date)}" /></td>
-          <td>${transactionTypeText(transaction)}</td>
-          <td><input name="amount" type="number" min="1" step="1" value="${escapeAttr(transaction.amount)}" /></td>
           <td>${escapeHtml(itemText(getTransactionFromItem(transaction)))}</td>
+          <td><input name="fromAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "from"))}" /></td>
+          <td>${transactionTypeText(transaction)}</td>
           <td>${escapeHtml(itemText(getTransactionToItem(transaction)))}</td>
+          <td><input name="toAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "to"))}" /></td>
           <td><input name="note" list="commonSummaryList" value="${escapeAttr(transaction.note || "")}" /></td>
         </tr>`;
       })
       .join("") ||
-    '<tr><td colspan="6">目前還沒有記錄資料。</td></tr>'
+    '<tr><td colspan="7">目前還沒有記錄資料。</td></tr>'
   );
 }
 
 function renderDesktopEditableTransactions(transactions) {
   const balanceMap = buildDesktopBalanceMap();
   const showBalance = shouldShowDesktopBalanceColumn();
-  const emptyColspan = showBalance ? 7 : 6;
+  const emptyColspan = showBalance ? 8 : 7;
 
   return (
     transactions
@@ -3492,11 +3821,12 @@ function renderDesktopEditableTransactions(transactions) {
         return `<tr data-transaction-id="${escapeAttr(transaction.id)}" class="editable-row desktop-editable-row">
           <td><input name="date" type="date" value="${escapeAttr(transaction.date)}" /></td>
           <td>${renderDesktopItemEditor("from", fromItem)}</td>
+          <td><input name="fromAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "from"))}" /></td>
           <td class="desktop-type-preview">${transactionTypeText(transaction)}</td>
           <td>${renderDesktopItemEditor("to", toItem)}</td>
-          <td><input name="amount" type="number" min="1" step="1" value="${escapeAttr(transaction.amount)}" /></td>
+          <td><input name="toAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "to"))}" /></td>
           <td><input name="note" list="commonSummaryList" value="${escapeAttr(transaction.note || "")}" /></td>
-          ${showBalance ? `<td>${fmt(balanceMap[transaction.id] ?? 0)}</td>` : ""}
+          ${showBalance ? `<td>${escapeHtml(formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0))}</td>` : ""}
         </tr>`;
       })
       .join("") ||
@@ -3571,7 +3901,7 @@ function renderTransactionItemOptions(type, selectedValue = "") {
 function renderDesktopReadonlyTransactions(transactions) {
   const balanceMap = buildDesktopBalanceMap();
   const showBalance = shouldShowDesktopBalanceColumn();
-  const emptyColspan = showBalance ? 7 : 6;
+  const emptyColspan = showBalance ? 8 : 7;
 
   return (
     transactions
@@ -3579,11 +3909,12 @@ function renderDesktopReadonlyTransactions(transactions) {
         return `<tr class="desktop-transaction-row" data-transaction-id="${escapeAttr(transaction.id)}" tabindex="0">
           <td>${escapeHtml(formatDesktopDateCell(transaction.date))}</td>
           <td>${escapeHtml(itemText(getTransactionFromItem(transaction)))}</td>
+          <td>${escapeHtml(getTransactionDisplayAmountText(transaction, "from"))}</td>
           <td>${transactionTypeText(transaction)}</td>
           <td>${escapeHtml(itemText(getTransactionToItem(transaction)))}</td>
-          <td>${fmt(transaction.amount)}</td>
+          <td>${escapeHtml(getTransactionDisplayAmountText(transaction, "to"))}</td>
           <td>${escapeHtml(transaction.note || "-")}</td>
-          ${showBalance ? `<td>${fmt(balanceMap[transaction.id] ?? 0)}</td>` : ""}
+          ${showBalance ? `<td>${escapeHtml(formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0))}</td>` : ""}
         </tr>`;
       })
       .join("") ||
@@ -3634,7 +3965,14 @@ function setReadonlyTransactionRowSelected(mode, transactionId, selected) {
 function updateDesktopEditableItemOptions(row, prefix) {
   const type = row.querySelector(`[name="${prefix}Type"]`).value;
   const itemSelect = row.querySelector(`[name="${prefix}Id"]`);
-  itemSelect.innerHTML = renderTransactionItemOptions(type);
+  replaceSelectOptions(
+    itemSelect,
+    getTransactionItemsByType(type).map((item) => ({
+      value: `${item.kind}:${item.id}`,
+      label: item.name
+    })),
+    { emptyLabel: "沒有可選項目" }
+  );
 }
 
 function updateDesktopEditableTypePreview(row) {
@@ -3728,6 +4066,7 @@ function getDesktopBalanceScope() {
 
 function getDesktopBalanceStart(scope, targetMonth = "") {
   const snapshot = targetMonth ? getLatestUsableSnapshotBefore(targetMonth) : null;
+  const baseValues = buildAccountBaseValues(targetMonth);
   if (scope.mode === "account") {
     if (snapshot?.closingBalances) {
       return Number(snapshot.closingBalances?.[scope.id] || 0);
@@ -3742,22 +4081,22 @@ function getDesktopBalanceStart(scope, targetMonth = "") {
     }
     const assetTotal = state.accounts
       .filter((account) => inferAccountType(account) === "asset")
-      .reduce((sum, account) => sum + Number(account.balance || 0), 0);
+      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? (account.balance || 0)), 0);
     const liabilityTotal = state.accounts
       .filter((account) => inferAccountType(account) === "liability")
-      .reduce((sum, account) => sum + Number(account.balance || 0), 0);
+      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? (account.balance || 0)), 0);
     return assetTotal - liabilityTotal;
   }
 
-  if (snapshot?.closingBalances) {
+  if (snapshot?.closingBaseValues) {
     return state.accounts
       .filter((account) => inferAccountType(account) === scope.type)
-      .reduce((sum, account) => sum + Number(snapshot.closingBalances?.[account.id] || 0), 0);
+      .reduce((sum, account) => sum + Number(snapshot.closingBaseValues?.[account.id] || 0), 0);
   }
 
   return state.accounts
     .filter((account) => inferAccountType(account) === scope.type)
-    .reduce((sum, account) => sum + Number(account.balance || 0), 0);
+    .reduce((sum, account) => sum + Number(baseValues[account.id] ?? (account.balance || 0)), 0);
 }
 
 function getDesktopBalanceDelta(transaction, scope) {
@@ -3768,20 +4107,49 @@ function getDesktopBalanceDelta(transaction, scope) {
   if (scope.mode === "net-worth") {
     const assetDelta = state.accounts
       .filter((account) => inferAccountType(account) === "asset")
-      .reduce((sum, account) => sum + getAccountDelta(transaction, account.id), 0);
+      .reduce((sum, account) => sum + getAccountBaseDelta(transaction, account.id), 0);
     const liabilityDelta = state.accounts
       .filter((account) => inferAccountType(account) === "liability")
-      .reduce((sum, account) => sum + getAccountDelta(transaction, account.id), 0);
+      .reduce((sum, account) => sum + getAccountBaseDelta(transaction, account.id), 0);
     return assetDelta - liabilityDelta;
   }
 
   return state.accounts
     .filter((account) => inferAccountType(account) === scope.type)
-    .reduce((sum, account) => sum + getAccountDelta(transaction, account.id), 0);
+    .reduce((sum, account) => sum + getAccountBaseDelta(transaction, account.id), 0);
 }
 
 function getAccountDelta(transaction, accountId) {
   return getTransactionAccountContribution(transaction, accountId);
+}
+
+function formatDesktopBalanceValue(scope, value) {
+  if (scope?.mode === "account") {
+    const account = state.accounts.find((item) => item.id === scope.id);
+    return fmtAccountAmount(value, getAccountCurrency(account));
+  }
+  return fmt(value);
+}
+
+function getAccountBaseDelta(transaction, accountId) {
+  const fromItem = getTransactionFromItem(transaction);
+  const toItem = getTransactionToItem(transaction);
+  const account = state.accounts.find((item) => item.id === accountId);
+  if (!account) {
+    return 0;
+  }
+  const currency = getAccountCurrency(account);
+  if (!isForeignCurrencyCode(currency)) {
+    return getAccountDelta(transaction, accountId);
+  }
+
+  if (fromItem.kind === "account" && fromItem.id === accountId) {
+    return -Number(getTransactionSideAmount(transaction, "to") || 0);
+  }
+  if (toItem.kind === "account" && toItem.id === accountId) {
+    return Number(getTransactionSideAmount(transaction, "from") || 0);
+  }
+  return 0;
 }
 
 function matchesDesktopSidebarSelection(transaction) {
@@ -3832,7 +4200,9 @@ async function saveEditedTransactions() {
           date: row.querySelector('[name="date"]').value,
           fromItem: compactTransactionItem(getTransactionFromItem(transaction)),
           toItem: compactTransactionItem(getTransactionToItem(transaction)),
-          amount: Number(row.querySelector('[name="amount"]').value || 0),
+          amount: Number(row.querySelector('[name="toAmount"]').value || 0),
+          fromAmount: Number(row.querySelector('[name="fromAmount"]').value || 0),
+          toAmount: Number(row.querySelector('[name="toAmount"]').value || 0),
           note: row.querySelector('[name="note"]').value
         };
 
@@ -3861,7 +4231,9 @@ function buildTransactionFromEditableRow(row) {
     date: row.querySelector('[name="date"]').value,
     fromItem: buildTransactionItem(row.querySelector('[name="fromId"]').value),
     toItem: buildTransactionItem(row.querySelector('[name="toId"]').value),
-    amount: Number(row.querySelector('[name="amount"]').value || 0),
+    amount: Number(row.querySelector('[name="toAmount"]').value || 0),
+    fromAmount: Number(row.querySelector('[name="fromAmount"]').value || 0),
+    toAmount: Number(row.querySelector('[name="toAmount"]').value || 0),
     note: row.querySelector('[name="note"]').value
   };
 }
@@ -3871,7 +4243,8 @@ function compactTransactionItem(item) {
     kind: item?.kind || "",
     id: item?.id || "",
     name: item?.name || "",
-    type: item?.type || ""
+    type: item?.type || "",
+    currency: item?.currency || BASE_CURRENCY
   };
 }
 
@@ -4041,7 +4414,37 @@ function buildChartData() {
   return chartData;
 }
 
+function ensureChartLibraryLoaded() {
+  if (typeof globalThis.Chart === "function") {
+    return Promise.resolve();
+  }
+  if (chartScriptLoadPromise) {
+    return chartScriptLoadPromise;
+  }
+
+  chartScriptLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = CHART_SCRIPT_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Chart.js 載入失敗。"));
+    document.head.append(script);
+  });
+  return chartScriptLoadPromise;
+}
+
 function renderCharts() {
+  if (typeof globalThis.Chart !== "function") {
+    ensureChartLibraryLoaded()
+      .then(() => {
+        if (state.uid) {
+          renderCharts();
+        }
+      })
+      .catch((error) => console.warn(error));
+    return;
+  }
+
   const { pieData, barData } = buildChartData();
 
   if (state.pieChart) {

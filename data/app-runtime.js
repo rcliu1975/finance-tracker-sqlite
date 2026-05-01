@@ -1,13 +1,18 @@
-import {
-  createUserWithEmailAndPassword,
-  initializeFirebaseServices,
-  loadFirebaseBootstrap,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut
-} from "./firebase-backend.js";
-
 const SQLITE_BRIDGE_SESSION_KEY = "financeTrackerSqliteBridgeSession:v1";
+
+async function loadAppBootstrap() {
+  try {
+    const { appRuntime = {}, firebaseConfig = null, firebaseRuntime = {} } = await import("../app-config.js");
+    return { appRuntime, firebaseConfig, firebaseRuntime, loadError: null };
+  } catch (loadError) {
+    try {
+      const { appRuntime = {}, firebaseConfig = null, firebaseRuntime = {} } = await import("../firebase-config.js");
+      return { appRuntime, firebaseConfig, firebaseRuntime, loadError: null };
+    } catch (legacyLoadError) {
+      return { appRuntime: {}, firebaseConfig: null, firebaseRuntime: {}, loadError: legacyLoadError || loadError };
+    }
+  }
+}
 
 async function loadSQLiteSeedData(seedPath) {
   const path = String(seedPath || "").trim();
@@ -46,32 +51,34 @@ async function requestBridgeSessionJson(baseUrl, path, { method = "GET", body, t
 }
 
 function readStoredSQLiteBridgeSession(storageKey) {
-  if (!globalThis.localStorage) {
+  const storage = globalThis.sessionStorage || globalThis.localStorage;
+  if (!storage) {
     return {};
   }
   try {
-    const raw = globalThis.localStorage.getItem(storageKey);
+    const raw = storage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    globalThis.localStorage.removeItem(storageKey);
+    storage.removeItem(storageKey);
     return {};
   }
 }
 
 function writeStoredSQLiteBridgeSession(storageKey, payload) {
-  if (!globalThis.localStorage) {
+  const storage = globalThis.sessionStorage || globalThis.localStorage;
+  if (!storage) {
     return;
   }
   if (!payload || !Object.keys(payload).length) {
-    globalThis.localStorage.removeItem(storageKey);
+    storage.removeItem(storageKey);
     return;
   }
-  globalThis.localStorage.setItem(storageKey, JSON.stringify(payload));
+  storage.setItem(storageKey, JSON.stringify(payload));
 }
 
 export async function loadAppRuntime() {
-  const { appRuntime: runtimeConfig = {}, firebaseConfig, firebaseRuntime, loadError } = await loadFirebaseBootstrap();
+  const { appRuntime: runtimeConfig = {}, firebaseConfig, firebaseRuntime, loadError } = await loadAppBootstrap();
   const providerKey = String(runtimeConfig.storageBackend || "firebase").trim().toLowerCase() || "firebase";
   const localUserId = String(runtimeConfig.localUserId || "local-user").trim() || "local-user";
   if (providerKey === "sqlite") {
@@ -237,6 +244,13 @@ export async function loadAppRuntime() {
     };
   }
 
+  const {
+    createUserWithEmailAndPassword,
+    initializeFirebaseServices,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    signOut
+  } = await import("./firebase-backend.js");
   const services = firebaseConfig ? initializeFirebaseServices(firebaseConfig, firebaseRuntime) || {} : {};
   const auth = services.auth || null;
   const db = services.db || null;

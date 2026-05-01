@@ -1,497 +1,470 @@
-# 家庭理財記帳
+# 家庭理財記帳 SQLite 版
 
-> 這個 repo 是從 `finance-tracking` 拆出的 `SQLite` 遷移專案。  
-> 目前以 SQLite 工作流為主，Firebase / Firestore 僅保留相容路徑。
+這個 repo 是從 `finance-tracking` 拆出的 SQLite 主線版本。現在建議把資料放在本機 SQLite database，透過 CLI 匯入 / 匯出，並用 SQLite bridge 啟動 Web UI。
 
-這是一個以 SQLite 為主、保留 Firebase / Firestore 相容能力的前端記帳工具，適合用來管理家庭收支、固定支出與基礎財務分析。
+Firebase / Firestore 只保留相容與遷移路徑，相關說明見 [FIRESTORE_COMPAT.md](FIRESTORE_COMPAT.md)。
 
-SQLite-only 啟動可直接看：
+## 建議日常流程
 
-- [`SQLITE_QUICKSTART.md`](/home/roger/WorkSpace/finance-tracker-sqlite/SQLITE_QUICKSTART.md)
-
-如果你要讓 SQLite UI 從外網登入，也看這份 quickstart。
-目前 SQLite bridge 外網模式提供的是既有帳號登入，不是前端自助註冊。
-
-## SQLite 遷移現況
-
-- 已建立初版 SQLite schema：[sqlite/schema.sql](sqlite/schema.sql)
-- 已整理 Firestore 對 SQLite 的資料對照：[sqlite/README.md](sqlite/README.md)
-- 已有統一 SQLite 匯入入口：`scripts/import-to-sqlite.py`
-- `sqlite:import-firestore`、`sqlite:import-csv`、`sqlite:import-items` 都已整合到同一支主程式
-- 已有 SQLite 項目 CSV 匯出腳本：`scripts/export-items-from-sqlite.py`
-- 已有 SQLite 記錄 CSV 匯出腳本：`scripts/export-records-from-sqlite.py`
-- 已有桌面側欄月矩陣 CSV 匯出腳本：`scripts/export-desktop-sidebar-matrix.py`
-- 已有 SQLite -> 前端 seed JSON 匯出腳本：`scripts/export-sqlite-to-json.py`
-- 已有 SQLite 月快照重建腳本：`scripts/rebuild-sqlite-snapshots.py`
-- 已有 SQLite 驗證腳本：`scripts/verify-sqlite-db.py`
-- 已有 SQLite HTTP bridge：`scripts/sqlite-http-bridge.py`
-- 前端已改成透過 `data/app-data-backend.js` 讀寫資料，為接上 SQLite backend 預留穩定介面
-- 前端 runtime / session 已改成透過 `data/app-runtime.js` 進入，減少 `app.js` 對 Firebase 專名的直接耦合
-- 前端 session/bootstrap 初始化已抽到 `data/app-session.js`
-- 已加入 `APP_STORAGE_BACKEND=sqlite` provider 切換；目前可透過 `APP_SQLITE_API_BASE_URL` 直接連本機 SQLite bridge，`seed JSON + localStorage` 改為 fallback
-- `commonSummaries` 在 SQLite bridge 模式下也會直接持久化到 SQLite，不再只靠瀏覽器 `localStorage`
-- 線上項目匯入 / 匯出入口已移除，改走 `scripts/` 下的 command line 工具
-
-### SQLite 匯入流程
-
-如果你要直接把某個 Firebase / Firestore 使用者匯成 SQLite：
+以下以這幾個路徑為例，請換成你的實際檔名：
 
 ```bash
-npm run sqlite:import-firestore -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --uid <uid> \
-  --production \
-  --replace
+DB=~/finance-tracker.db
+OLD_ITEMS=~/item_2025_UTF-8_import.csv
+OLD_RECORDS=~/transactionP-2025_utf-8_import.csv
+CONVERTED_DIR=./.tmp/converted-csv
+EXAMPLE_DIR=./.tmp/example-csv
+BACKUP_DIR=~/finance-tracker-backups
 ```
 
-或用 email 查目標使用者：
+### 1. 把舊格式 CSV 轉成新格式
+
+舊交易 CSV 是單一 `金額` 欄位；新版交易 CSV 使用 `從金額` / `至金額`，可支援外幣帳戶與換匯。
 
 ```bash
-npm run sqlite:import-firestore -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --email you@example.com \
-  --emulator \
-  --replace
+npm run sqlite:convert-legacy-csv -- \
+  --legacy-items-csv "$OLD_ITEMS" \
+  --legacy-transactions-csv "$OLD_RECORDS" \
+  --output-dir "$CONVERTED_DIR" \
+  --base-currency TWD
 ```
 
-這支工具目前會匯入：
+會產生：
 
-- `accounts`
-- `categories`
-- `transactions`
-- `recurring`
-- `monthlySnapshots`
-- `meta/settings`
+- `$CONVERTED_DIR/items-foreign-currency-import.csv`
+- `$CONVERTED_DIR/transactions-foreign-currency-import.csv`
 
-如果你已經有既有的項目 / 交易 CSV，可以直接建立一個 SQLite 測試資料庫：
+轉換規則：
+
+- 項目 CSV 新增 `幣別` 欄位。
+- 帳戶列的 `幣別` 用 `--base-currency` 補值，預設 `TWD`。
+- 分類列的 `幣別` 保持空白。
+- 舊版交易 `金額` 會同時填入新版 `從金額` 與 `至金額`。
+- 交易輸出會依 `日期` 由舊到新排序；同一天內保留原 CSV 的相對順序。
+
+### 2. 產生新格式範例做比較
+
+```bash
+npm run sqlite:generate-fx-csv-examples -- \
+  --output-dir "$EXAMPLE_DIR"
+```
+
+會產生：
+
+- `$EXAMPLE_DIR/items-foreign-currency-example.csv`
+- `$EXAMPLE_DIR/transactions-foreign-currency-example.csv`
+
+建議用試算表或 diff 工具比較「範例檔」與「轉換後檔案」，確認欄位順序、幣別、`從金額` / `至金額` 都符合預期。
+
+### 3. 匯入 SQLite database 並更新 snapshot
 
 ```bash
 npm run sqlite:import-csv -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --items-csv ~/item_2025_UTF-8_import.csv \
-  --transactions-csv ~/transactionP-2025_utf-8_import.csv \
+  --db "$DB" \
+  --items-csv "~/items-foreign-currency-import.csv" \
+  --transactions-csv "~/transactions-foreign-currency-import.csv" \
+  --user-id local-user \
   --replace
 ```
 
-說明：
+`sqlite:import-csv` 會建立 / 更新 SQLite database，匯入項目與交易，並自動重建 `monthly_snapshots`。
+重建後：
 
-- 這只會讀取你指定的 CSV，不會把 CSV 放進 repo
-- `--db` 建議指定在 repo 外部的位置
-- `--replace` 會覆蓋既有資料庫檔
-- 預設會建立單一使用者 `local-user`
-- 匯入完成後會直接重建 `monthly_snapshots`
-- 如果目標 `user` 已經有 transaction 記錄，匯入會直接拒絕，避免重複灌資料
+- `income_total` 只代表一般 `income`
+- `expense_total` 只代表一般 `expense`
+- `nonOperatingIncome` / `nonOperatingExpense` 會保留在 `category_totals_json`，由 UI 與匯出工具依分類型別分開加總
 
-匯入後可再做一次快速驗證：
+匯入後建議驗證一次：
 
 ```bash
-npm run sqlite:verify-db -- --db ~/finance-tracker-sqlite-test.db
+npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 ```
 
-如果要重建 SQLite 版月快照：
+注意：
 
-```bash
-npm run sqlite:rebuild-snapshots -- --db ~/finance-tracker-sqlite-test.db --apply
-```
+- `--db` 建議放在 repo 外面，不要把私人 `.db` commit 進 repo。
+- `--replace` 會覆蓋既有 database。
+- 不使用 `--replace` 時，如果該 user 已有 transaction，匯入會拒絕，避免重複灌資料。
+- 可選的 `--user-email` / `--display-name` 只會寫入 SQLite user metadata，和 UI 登入無關。
 
-如果要把 SQLite 測試資料庫匯出成前端可直接載入的 seed JSON：
+### 4. 給 Cloudflared 使用的啟動方式
 
-```bash
-npm run sqlite:export-json -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --output /tmp/finance-tracker-sqlite-seed.json
-```
-
-建議依序執行：
-
-1. `sqlite:import-csv`
-2. `sqlite:rebuild-snapshots --apply`
-3. `sqlite:verify-db`
-4. `sqlite:export-json`
-
-不要同時對同一顆 `.db` 平行執行 `--replace` 匯入、快照重建與驗證。
-
-### SQLite bridge + serve 流程
-
-這條流程只負責把既有 SQLite `.db` 接到前端，不包含任何匯入動作。
-
-最簡單的啟動方式：
+這一節改成預設用「單一 Cloudflared tunnel + 同一個公開 origin」連入，例如 `https://www.kennylab.online`：
 
 ```bash
 npm run sqlite:frontend -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
+  --db "$DB" \
+  --user-id local-user \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online
 ```
 
-這支腳本會做三件事：
+這個指令會：
 
 1. 產生 `app-config.js`
-2. 啟動 `sqlite-http-bridge.py`
+2. 啟動 SQLite HTTP bridge
 3. 啟動前端靜態 server
 
-按 `Ctrl+C` 會一起停止 bridge 與前端 server。
+本機會開：
 
-如果你要分開控制 bridge 與 serve，仍可各自啟動：
+- Frontend: `http://127.0.0.1:5173`
+- SQLite bridge: `http://127.0.0.1:8765`
 
-```bash
-npm run sqlite:bridge -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
+前端 `app-config.js` 會使用：
 
-npm run serve
+```text
+APP_SQLITE_API_BASE_URL=https://www.kennylab.online/bridge
 ```
 
-## Command line 項目匯入 / 匯出
+也就是 browser 讀 `index.html` 與呼叫 SQLite bridge，都走同一個公開 origin。
 
-前端已移除線上 `項目匯入` / `項目匯出`，改成只保留 command line 流程。
+按 `Ctrl+C` 可同時停止 bridge 與前端 server。
 
-### 匯出 SQLite 項目 CSV
+#### 架構
+
+```text
+Browser
+  -> https://www.kennylab.online
+  -> Cloudflared tunnel
+  -> 本機 reverse proxy（Caddy 或 nginx，假設 listen 127.0.0.1:8080）
+     -> /        轉給 http://127.0.0.1:5173
+     -> /bridge/ 轉給 http://127.0.0.1:8765
+```
+
+這個做法的重點：
+
+- 外部只看到一個 hostname：`www.kennylab.online`
+- 不需要把 `5173` 或 `8765` 直接暴露到外網
+- browser 端是 same-origin，通常不需要額外處理 CORS
+- 如果外層已有 Cloudflare Access 或其他存取控制，可以不開 bridge 內建 email/password
+
+#### Cloudflared 設定
+
+`~/.cloudflared/config.yml`：
+
+```yaml
+tunnel: <your-tunnel-id>
+credentials-file: /home/<user>/.cloudflared/<your-tunnel-id>.json
+
+ingress:
+  - hostname: www.kennylab.online
+    service: http://127.0.0.1:8080
+  - service: http_status:404
+```
+
+啟動：
 
 ```bash
+cloudflared tunnel run <your-tunnel-name>
+```
+
+#### Caddyfile 範例
+
+`Caddyfile`：
+
+```caddy
+:8080 {
+  handle_path /bridge/* {
+    reverse_proxy 127.0.0.1:8765
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:5173
+  }
+}
+```
+
+啟動 Caddy：
+
+```bash
+caddy run --config /path/to/Caddyfile
+```
+
+`handle_path /bridge/*` 會把 `/bridge` 前綴剝掉，所以 SQLite bridge 實際收到的是 `/session/config`、`/health` 這種原本就支援的路徑。
+
+#### nginx 範例
+
+如果你不用 Caddy，也可以用 nginx：
+
+```nginx
+server {
+    listen 127.0.0.1:8080;
+    server_name www.kennylab.online;
+
+    location /bridge/ {
+        proxy_pass http://127.0.0.1:8765/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Origin $scheme://$host;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5173/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+這裡 `proxy_pass http://127.0.0.1:8765/;` 尾端要保留 `/`，才能把 `/bridge/xxx` 正確轉成 bridge 端的 `/xxx`。
+
+#### 啟用順序
+
+1. 啟動 SQLite 前端與 bridge：
+
+```bash
+npm run sqlite:frontend -- \
+  --db "$DB" \
+  --user-id local-user \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online
+```
+
+2. 啟動 Caddy 或 nginx，讓 `127.0.0.1:8080` 同時代理前端與 `/bridge/`
+3. 啟動 `cloudflared tunnel run <your-tunnel-name>`
+4. 從外部打開 `https://www.kennylab.online`
+
+#### 什麼時候要加 bridge 內建登入
+
+如果你沒有 Cloudflare Access、反向代理 Basic Auth、Tailscale Funnel ACL 或其他等價保護，建議仍然開 bridge 內建登入：
+
+```bash
+npm run sqlite:frontend -- \
+  --db "$DB" \
+  --user-id local-user \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://www.kennylab.online \
+  --login-email you@example.com \
+  --login-password 'strong-password'
+```
+
+這個 email / password 是 SQLite bridge 的 UI 登入保護，不是前端註冊帳號。對外開放前請使用強密碼，並優先放在 Cloudflare Access 或其他外層保護後面。
+
+### 5. 登入 UI 開始使用
+
+打開前端網址後，用剛才設定的 email / password 登入。
+
+SQLite bridge 登入是本機 bridge 的保護層，不是前端自助註冊。資料仍歸屬於 `--user-id` 指定的 SQLite user。
+
+### 6. 必要時更新 snapshot
+
+如果你手動改過 database、調整項目期初餘額，或覺得月結數字需要重算：
+
+```bash
+npm run sqlite:rebuild-snapshots -- \
+  --db "$DB" \
+  --user-id local-user \
+  --apply
+```
+
+也可以指定起始月份：
+
+```bash
+npm run sqlite:rebuild-snapshots -- \
+  --db "$DB" \
+  --user-id local-user \
+  --from-month 2024-01 \
+  --apply
+```
+
+重建後再驗證：
+
+```bash
+npm run sqlite:verify-db -- --db "$DB" --user-id local-user
+```
+
+這個重建流程會重新寫入整段 `monthly_snapshots`。目前 `income_total` / `expense_total` 只對應一般收入 / 支出；業外項目請看 `categoryTotals` 或 UI 的 `業外收入` / `業外支出` 群組。
+
+### 7. 經常匯出 CSV 備份
+
+建議定期匯出項目與交易 CSV，放在 repo 外的備份目錄：
+
+```bash
+mkdir -p "$BACKUP_DIR"
+
 npm run sqlite:export-items -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --output ~/items-export.csv
-```
+  --db "$DB" \
+  --user-id local-user \
+  --output "$BACKUP_DIR/items-$(date +%Y%m%d).csv"
 
-說明：
-
-- `--db`：來源 SQLite 資料庫
-- `--output`：輸出的 CSV 檔案路徑
-- `--user-id`：可選；未指定時取資料庫內第一個 user
-
-匯出的欄位格式：
-
-- `類別`
-- `項目名稱`
-- `期初餘額`
-- `次序`
-- `保護項目`
-- `ID`
-- `常用摘要`
-
-### 匯入 SQLite 項目 CSV
-
-```bash
-npm run sqlite:import-items -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --items-csv ~/items-export.csv
-```
-
-說明：
-
-- `--db`：目標 SQLite 資料庫
-- `--items-csv`：要匯入的 CSV 檔案
-- `--user-id`：可選；未指定時取資料庫內第一個 user
-
-行為：
-
-- 同名同類型項目會更新
-- 新項目會新增到資料庫
-- 類別項目的 `常用摘要` 會同步更新到 `common_summaries`
-- 若有帳戶期初餘額變動，會更新 `user_settings.snapshot_dirty_from_month`
-- 若目標 `user` 已經有 transaction 記錄，匯入會直接拒絕
-
-## Command line 記錄匯出
-
-前端已不提供線上記錄匯出；若需要 CSV，請直接從 SQLite 匯出。
-
-```bash
 npm run sqlite:export-records -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --output ~/records-export.csv
+  --db "$DB" \
+  --user-id local-user \
+  --output "$BACKUP_DIR/records-$(date +%Y%m%d).csv"
 ```
 
-說明：
-
-- `--db`：來源 SQLite 資料庫
-- `--output`：輸出的 CSV 檔案路徑
-- `--user-id`：可選；未指定時取資料庫內第一個 user
-
-匯出的欄位格式：
-
-- `日期`
-- `從項目`
-- `至項目`
-- `金額`
-- `摘要`
-- `備註`
-
-## Command line 桌面側欄月矩陣匯出
-
-若需要依桌面版側欄順序，把總資產負債結餘、各群組與各項目展開成「列」，並把月份展開成「欄」：
+如果需要桌面側欄月份矩陣：
 
 ```bash
 npm run sqlite:export-sidebar-matrix -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --output ~/desktop-sidebar-matrix.csv
-```
-
-說明：
-
-- `--db`：來源 SQLite 資料庫
-- `--output`：輸出的 CSV 檔案路徑
-- `--user-id`：可選；未指定時取資料庫內第一個 user
-- `--start-month`：可選；預設 `2009-08`
-- `--end-month`：可選；未指定時取資料庫內最後一個 snapshot 月份
-
-輸出結構：
-
-- 左側固定欄位：
-  - `順序`
-  - `群組`
-  - `列類型`
-  - `名稱`
-  - `ID`
-- 右側月份欄位：
-  - 例如 `2009/8`、`2009/9`、`2009/10`
-
-列順序會對齊桌面版側欄：
-
-1. `總資產負債結餘`
-2. `資產` 群組與其帳戶
-3. `負債` 群組與其帳戶
-4. `收入` 群組與其分類
-5. `支出` 群組與其分類
-6. `業外收入` 群組與其分類
-7. `業外支出` 群組與其分類
-
-## 目前功能
-
-- 記錄收入、支出與轉帳記錄
-- 管理帳戶、分類與每月預算
-- 記錄列表支援全部、1 星期、1 個月篩選
-- 顯示總資產、本月收支與預算使用率
-- 產生最近記錄列表、分類圓餅圖與近六個月收支圖
-- 支援固定支出自動帶入當月記錄
-- 支援桌面版模式：
-  - 在寬度 `>= 1024px` 時顯示 `桌面版` 按鈕
-  - 切換後會把 topbar 下方改成左側摘要欄 + 右側工作區的桌面版架構
-  - 會記住桌面版開關、左側群組收合狀態與所選年月
-
-## 專案檔案
-
-- `index.html`: 主要頁面結構
-- `styles.css`: 視覺樣式與 RWD
-- `app.js`: 前端資料流程、互動與畫面渲染
-- `.env.example`: 本機與部署用設定範本
-- `app-config.example.js`: 通用前端設定範本
-- `firebase-config.example.js`: 舊檔名相容範本
-- `firebase.json`: Firebase Hosting 設定
-- `firestore.rules`: Firestore 權限規則，只允許登入者存取自己的 `users/{uid}` 資料
-- `.firebaserc`: Firebase 專案綁定設定
-- `scripts/deploy.sh`: Unix-like 環境部署腳本
-- `scripts/deploy.ps1`: Windows PowerShell 部署腳本
-- `scripts/cleanup-orphan-users.js`: 比對 Firebase Authentication 與 Firestore `users/{uid}`，清理不存在帳號的使用者資料
-- `scripts/generate-app-config.js`: 依 `.env` 產生 `app-config.js`
-- `scripts/generate-firebase-config.js`: 舊腳本名稱相容保留
-- `scripts/import-records-cli.js`: 在 command line 下匯入記錄 CSV，支援 dry-run、Emulator 與正式 Firestore
-- `scripts/import-to-sqlite.py`: 統一 SQLite 匯入主入口，支援 `firestore`、`csv`、`items` 三種來源
-- `scripts/export-items-from-sqlite.py`: 從 SQLite 資料庫匯出項目 CSV
-- `scripts/export-records-from-sqlite.py`: 從 SQLite 資料庫匯出記錄 CSV
-- `scripts/export-desktop-sidebar-matrix.py`: 依桌面側欄順序匯出月矩陣 CSV
-- `scripts/rebuild-sqlite-snapshots.py`: 依 SQLite 交易資料重建 `monthly_snapshots`
-- `scripts/verify-sqlite-db.py`: 驗證產生出的 SQLite 資料庫筆數與外鍵狀態
-- `scripts/sqlite-http-bridge.py`: 提供前端直接讀寫 SQLite `.db` 的本機 HTTP bridge
-- `scripts/rebuild-monthly-snapshots.js`: 重建 `monthlySnapshots`，支援 dirty month、Emulator 與正式 Firestore
-
-## 目前介面模式
-
-- 行動版：保留原本分頁式記帳介面
-- 桌面版：
-  - 左側顯示資產、負債、收入、支出四組摘要
-  - 右側改成 design repo 風格的工作區，顯示所選年月的記錄資料
-  - `新增記錄` 會使用桌面版專用小視窗，不影響行動版新增頁
-  - `項目設定` 會使用桌面版專用小視窗，不影響行動版設定頁
-  - 線上匯入 / 匯出入口已移除，改走 command line 工具
-
-## 介面樣式分工
-
-- 行動版專屬樣式使用 `body.mobile-mode` 作為作用範圍
-- 桌面版專屬樣式使用 `body.desktop-mode` 作為作用範圍
-- 共用元件樣式保留在未加模式前綴的規則中，避免兩種模式互相覆蓋
-
-## 已移除功能
-
-- 專案欄位
-- 專案分頁
-- 專案總覽與專案預算
-- `projects` 相關資料流與 CSV 匯出欄位
-
-## 本機啟動
-
-### SQLite 模式
-
-#### SQLite HTTP bridge 模式
-
-如果你要讓前端直接讀寫某顆 SQLite `.db`，先啟動 bridge：
-
-```bash
-npm run sqlite:bridge -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --user-id local-user
-```
-
-然後在 `.env` 設：
-
-```dotenv
-APP_STORAGE_BACKEND=sqlite
-APP_LOCAL_USER_ID=local-user
-APP_SQLITE_API_BASE_URL=http://127.0.0.1:8765
-APP_SQLITE_SEED_PATH=
-```
-
-再啟動前端：
-
-```bash
-npm run serve
-```
-
-這個模式目前特性如下：
-
-- 前端會直接透過 HTTP bridge 讀寫 SQLite `.db`
-- `commonSummaries` 也會直接寫回 SQLite
-- 不走 Firebase Authentication
-- 會以單一本機使用者進入 app
-- 需要 bridge 行程持續運作
-
-bridge 額外提供的管理 API：
-
-- `GET /health`
-- `GET /admin/status`
-- `POST /admin/rebuild-snapshots`
-
-範例：
-
-```bash
-curl http://127.0.0.1:8765/admin/status
-curl -X POST http://127.0.0.1:8765/admin/rebuild-snapshots \
-  -H 'Content-Type: application/json' \
-  -d '{"fromMonth":"2024-01"}'
-```
-
-前端 `設定` 分頁也會在這個模式下顯示 bridge 管理卡片，可直接查看狀態與手動重建 snapshot。
-
-如果要讓同網段或其他裝置連進來，請把 bridge 與前端都綁到外部位址，並把公開位址寫進前端設定：
-
-```bash
-npm run sqlite:frontend -- \
-  --db ~/finance-tracker-sqlite-test.db \
+  --db "$DB" \
   --user-id local-user \
-  --bridge-host 0.0.0.0 \
-  --serve-host 0.0.0.0 \
-  --open-host 192.168.1.10
+  --output "$BACKUP_DIR/sidebar-matrix-$(date +%Y%m%d).csv"
 ```
 
-說明：
+## CSV 格式
 
-- `--bridge-host`：bridge 實際監聽位址
-- `--serve-host`：前端靜態 server 監聽位址
-- `--open-host`：寫入 `app-config.js` 的公開位址；遠端裝置會用它連 bridge
+### 項目 CSV
 
-#### SQLite seed fallback 模式
+新版項目 CSV 欄位：
 
-如果你要先驗證前端在非 Firebase 路徑下能否啟動，可把 `.env` 設成：
-
-```dotenv
-APP_STORAGE_BACKEND=sqlite
-APP_LOCAL_USER_ID=local-user
-APP_SQLITE_SEED_PATH=/sqlite-seed.json
+```csv
+類別,項目名稱,幣別,期初餘額,次序,保護項目,ID,常用摘要
 ```
-
-這個模式目前特性如下：
-
-- 如果有設定 `APP_SQLITE_SEED_PATH`，啟動時會先抓取 seed JSON
-- 成功載入後，後續修改會保存在目前瀏覽器的 `localStorage`
-- 如果沒設定 `APP_SQLITE_SEED_PATH`，就退回空白的本機記憶體模式
-- 不需要 Firebase Web App 金鑰
-- 不走 Firebase Authentication
-- 會以單一本機使用者進入 app
-- 純記憶體模式下，重新整理頁面後資料不保留
-
-最簡單的本機測試方式，是先把 seed JSON 放在專案根目錄，例如：
-
-```bash
-npm run sqlite:export-json -- \
-  --db ~/finance-tracker-sqlite-test.db \
-  --output ./sqlite-seed.json
-```
-
-然後在 `.env` 設：
-
-```dotenv
-APP_STORAGE_BACKEND=sqlite
-APP_LOCAL_USER_ID=local-user
-APP_SQLITE_SEED_PATH=/sqlite-seed.json
-```
-
-啟動方式仍然相同：
-
-```bash
-npm run serve
-```
-
-## Firebase / Firestore 相容流程
-
-SQLite 主線之外的相容說明已移到：
-
-- [`FIRESTORE_COMPAT.md`](/home/roger/WorkSpace/finance-tracker-sqlite/FIRESTORE_COMPAT.md)
-
-這份相容文件包含：
-
-- Production / Emulator 連線方式
-- Firebase Hosting 部署
-- 孤兒使用者資料清理
-- Firestore 記錄匯入
-- Firestore 月快照重建
-- 目前 Firebase 資料結構
-
-## 匯入項目 CSV 格式範例
-
-`匯入項目` 目前會讀取下列欄位：
-
-- 必填：`類別`、`項目名稱`
-- 選填：`期初餘額`、`次序`、`常用摘要`
 
 說明：
 
 - `類別` 可用：`資產`、`負債`、`收入`、`支出`、`業外收入`、`業外支出`
-- `期初餘額` 只對 `資產`、`負債` 生效，空白時視為 `0`
-- `次序` 空白時會自動補下一個次序
-- `常用摘要` 只對分類項目生效，可用 `；` 分隔多筆，最多保留 6 筆
-- `保護項目`、`ID` 即使存在於 CSV，也不會影響匯入結果
+- `幣別` 只用在 `資產` / `負債` 帳戶列，例如 `TWD`、`USD`
+- 分類列的 `幣別` 留空
+- `常用摘要` 可用 `；` 分隔多筆
 
-範例：
+### 交易 CSV
+
+新版交易 CSV 欄位：
 
 ```csv
-類別,項目名稱,期初餘額,次序,常用摘要
-資產,現金,5000,0,
-負債,應付帳款,0,0,
-收入,薪資收入,,0,月薪；年終
-支出,餐飲費,,0,早餐；午餐；晚餐
-業外收入,利息,,0,活存利息；定存利息
-業外支出,保規費,,0,壽險；醫療險
+日期,從項目,從金額,至項目,至金額,摘要,備註
 ```
-
-## 匯入記錄 CSV 格式範例
-
-`匯入記錄` 目前會讀取下列欄位：
-
-- 必填：`日期`、`從項目`、`至項目`、`金額`
-- 選填：`摘要`、`備註`
 
 說明：
 
-- `從項目`、`至項目` 必須是資料庫裡已存在的項目名稱
-- 系統會依 `從項目` 與 `至項目` 自動判斷記錄類型，不依賴 `類型` 欄位
-- `摘要`、`備註` 可留空
-- 不合法的記錄路徑或格式錯誤資料會被略過，不會匯入
+- 本幣交易通常 `從金額` 與 `至金額` 相同。
+- 換匯或外幣帳戶交易可不同，例如台幣帳戶轉美元帳戶。
+- `從項目` / `至項目` 必須對應項目 CSV 內的項目名稱。
+- 系統會依項目位置與類別計算收支與餘額，不依賴交易類型欄位。
 
-範例：
+舊格式：
 
 ```csv
 日期,從項目,至項目,金額,摘要,備註
-2026-04-01,薪資收入,現金,50000,四月薪資,
-2026-04-02,現金,餐飲費,120,早餐,
-2026-04-03,利息,現金,35,活存利息,
-2026-04-04,現金,應付帳款,5000,信用卡還款,四月帳單
 ```
+
+舊格式請先用 `sqlite:convert-legacy-csv` 轉成新版格式後再匯入。
+
+## 常用 CLI
+
+| 指令 | 用途 |
+| --- | --- |
+| `npm run sqlite:convert-legacy-csv -- ...` | 舊版項目 / 交易 CSV 轉新版外幣格式 |
+| `npm run sqlite:generate-fx-csv-examples -- ...` | 產生新版 CSV 範例 |
+| `npm run sqlite:import-csv -- ...` | 匯入項目與交易 CSV 到 SQLite |
+| `npm run sqlite:verify-db -- ...` | 驗證 SQLite 筆數、外鍵與月結摘要 |
+| `npm run sqlite:rebuild-snapshots -- ...` | 重建 `monthly_snapshots` |
+| `npm run sqlite:frontend -- ...` | 產生設定、啟動 bridge、啟動 Web UI |
+| `npm run sqlite:bridge -- ...` | 只啟動 SQLite HTTP bridge |
+| `npm run sqlite:export-items -- ...` | 匯出項目 CSV |
+| `npm run sqlite:export-records -- ...` | 匯出交易 CSV |
+| `npm run sqlite:export-sidebar-matrix -- ...` | 匯出桌面側欄月份矩陣 |
+| `npm run sqlite:export-json -- ...` | 匯出前端 seed JSON，主要給測試 fallback 用 |
+
+查參數：
+
+```bash
+npm run sqlite:import-csv -- --help
+npm run sqlite:frontend -- --help
+npm run sqlite:export-records -- --help
+```
+
+## SQLite bridge 安全注意
+
+`sqlite:frontend` 會自動把前端來源加入 bridge 的 CORS allow-list。
+
+如果你手動分開啟動 bridge 與前端，必須明確指定 `--cors-origin`：
+
+```bash
+npm run sqlite:bridge -- \
+  --db "$DB" \
+  --user-id local-user \
+  --cors-origin http://127.0.0.1:5173 \
+  --login-email you@example.com \
+  --login-password 'strong-password'
+```
+
+bridge 對 browser request 會檢查 Origin；寫入 request body 必須使用 `Content-Type: application/json`。
+
+CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰有權限操作資料」。如果你用反向代理把前端與 bridge 合成同一個對外 origin，browser 端甚至不需要 CORS；但 bridge API 仍然是公開的 HTTP 入口，是否需要 bridge 內建登入，取決於外層是否已經有足夠的存取控制。
+
+## 專案檔案
+
+- [app.js](app.js): 前端資料流程、互動與畫面渲染
+- [index.html](index.html): 主要頁面
+- [styles.css](styles.css): 視覺樣式
+- [sqlite/schema.sql](sqlite/schema.sql): SQLite schema
+- [scripts/import-to-sqlite.py](scripts/import-to-sqlite.py): 統一 SQLite 匯入入口
+- [scripts/run-sqlite-frontend.py](scripts/run-sqlite-frontend.py): 一鍵啟動 SQLite bridge + Web UI
+- [scripts/sqlite-http-bridge.py](scripts/sqlite-http-bridge.py): SQLite HTTP bridge
+- [scripts/rebuild-sqlite-snapshots.py](scripts/rebuild-sqlite-snapshots.py): 重建月快照
+- [scripts/verify-sqlite-db.py](scripts/verify-sqlite-db.py): 驗證 SQLite database
+- [FIRESTORE_COMPAT.md](FIRESTORE_COMPAT.md): Firebase / Firestore 相容流程
+
+## 補充文件
+
+- [SQLITE_QUICKSTART.md](SQLITE_QUICKSTART.md): SQLite 快速啟動筆記
+- [sqlite/README.md](sqlite/README.md): SQLite schema 與資料對照
+- [sqlite/firestore-mapping.md](sqlite/firestore-mapping.md): Firestore 到 SQLite 對照
+
+## scripts 補充索引
+
+日常操作優先使用 `npm run ...` wrapper；直接執行 `scripts/*` 主要用於除錯或需要繞過 npm 時。
+
+### SQLite 日常腳本
+
+| script | 建議指令 | 功能 | 基本用法 |
+| --- | --- | --- | --- |
+| `scripts/convert-legacy-import-csv.py` | `npm run sqlite:convert-legacy-csv -- ...` | 舊版項目 / 交易 CSV 轉新版外幣 CSV | `npm run sqlite:convert-legacy-csv -- --legacy-items-csv "$OLD_ITEMS" --legacy-transactions-csv "$OLD_RECORDS" --output-dir "$CONVERTED_DIR"` |
+| `scripts/generate-foreign-currency-csv-examples.py` | `npm run sqlite:generate-fx-csv-examples -- ...` | 產生新版外幣 CSV 範例 | `npm run sqlite:generate-fx-csv-examples -- --output-dir "$EXAMPLE_DIR"` |
+| `scripts/import-to-sqlite.py` | `npm run sqlite:import-csv -- ...` / `npm run sqlite:import-firestore -- ...` | 統一 SQLite 匯入入口，日常使用 `csv` 匯入完整項目與交易 | `npm run sqlite:import-csv -- --db "$DB" --items-csv items.csv --transactions-csv records.csv --replace` |
+| `scripts/rebuild-sqlite-snapshots.py` | `npm run sqlite:rebuild-snapshots -- ...` | 重建 SQLite `monthly_snapshots` | `npm run sqlite:rebuild-snapshots -- --db "$DB" --user-id local-user --apply` |
+| `scripts/verify-sqlite-db.py` | `npm run sqlite:verify-db -- ...` | 驗證 SQLite 筆數、外鍵與月結摘要 | `npm run sqlite:verify-db -- --db "$DB" --user-id local-user` |
+| `scripts/run-sqlite-frontend.py` | `npm run sqlite:frontend -- ...` | 產生前端設定、啟動 bridge、啟動 Web UI | `npm run sqlite:frontend -- --db "$DB" --user-id local-user --login-email you@example.com --login-password 'strong-password'` |
+| `scripts/sqlite-http-bridge.py` | `npm run sqlite:bridge -- ...` | 只啟動 SQLite HTTP bridge | `npm run sqlite:bridge -- --db "$DB" --user-id local-user --cors-origin http://127.0.0.1:5173 --login-email you@example.com --login-password 'strong-password'` |
+| `scripts/export-items-from-sqlite.py` | `npm run sqlite:export-items -- ...` | 匯出項目 CSV | `npm run sqlite:export-items -- --db "$DB" --output items.csv` |
+| `scripts/export-records-from-sqlite.py` | `npm run sqlite:export-records -- ...` | 匯出交易 CSV | `npm run sqlite:export-records -- --db "$DB" --output records.csv` |
+| `scripts/export-desktop-sidebar-matrix.py` | `npm run sqlite:export-sidebar-matrix -- ...` | 匯出桌面側欄月份矩陣 CSV | `npm run sqlite:export-sidebar-matrix -- --db "$DB" --output sidebar-matrix.csv` |
+| `scripts/export-sqlite-to-json.py` | `npm run sqlite:export-json -- ...` | 匯出前端 seed JSON，主要用於 fallback 測試 | `npm run sqlite:export-json -- --db "$DB" --output sqlite-seed.json` |
+
+### SQLite 內部 helper
+
+| script | 用途 | 使用建議 |
+| --- | --- | --- |
+| `scripts/import-csv-to-sqlite.py` | CSV 匯入的底層實作 | 建議改用 `npm run sqlite:import-csv -- ...` |
+| `scripts/import-items-to-sqlite.py` | 只匯入項目設定的底層實作 | 日常流程不使用；保留給遷移除錯 |
+| `scripts/export-firestore-to-sqlite.py` | Firestore 匯到 SQLite 的底層實作 | 建議改用 `npm run sqlite:import-firestore -- ...` |
+| `scripts/sqlite_migration_lib.py` | SQLite 遷移共用函式庫 | 不直接執行 |
+
+### 設定產生與本機 serve
+
+| script / 指令 | 功能 | 基本用法 |
+| --- | --- | --- |
+| `scripts/generate-app-config.js` | 讀取 `.env` 產生 `app-config.js` | `npm run config:generate` |
+| `scripts/generate-firebase-config.js` | 舊檔名相容 wrapper，產生 `firebase-config.js` | `node scripts/generate-firebase-config.js` |
+| `npm run serve` | 先產生設定，再以 `python3 -m http.server` 開前端 | `npm run serve` |
+
+### Firebase / Firestore 相容腳本
+
+這些不是 SQLite 日常主線；只有需要維護舊 Firebase 資料或部署 Firebase Hosting 時才使用。
+
+| script | 建議指令 | 功能 | 基本用法 |
+| --- | --- | --- | --- |
+| `scripts/import-records-cli.js` | `npm run import:records -- ...` | 將記錄 CSV 匯入 Firestore；預設 dry-run，`--apply` 才寫入 | `npm run import:records -- --csv records.csv --email you@example.com --production --apply` |
+| `scripts/rebuild-monthly-snapshots.js` | `npm run rebuild:monthly-snapshots -- ...` | 重建 Firestore `monthlySnapshots`；預設 dry-run | `npm run rebuild:monthly-snapshots -- --email you@example.com --production --from 2024-01 --apply` |
+| `scripts/cleanup-orphan-users.js` | `npm run cleanup:orphan-users` / `npm run cleanup:orphan-users:apply -- ...` | 找出 Auth 不存在但 Firestore 還存在的 `users/{uid}`；apply 模式會刪除 | `npm run cleanup:orphan-users:apply -- --confirm-project <projectId>` |
+| `scripts/deploy.sh` | `scripts/deploy.sh` | Unix-like Firebase Hosting 部署檢查與部署 | `bash scripts/deploy.sh` |
+| `scripts/deploy.ps1` | `scripts/deploy.ps1` | Windows PowerShell Firebase Hosting 部署檢查與部署 | `pwsh scripts/deploy.ps1` |
+
+### npm Firebase 指令
+
+| 指令 | 功能 |
+| --- | --- |
+| `npm run firebase:login` | 執行 Firebase CLI login |
+| `npm run firebase:emulators` | 產生設定後啟動 Auth / Firestore Emulator |
+| `npm run firebase:deploy` | 產生設定後部署 Firebase Hosting |
+| `npm run firebase:deploy:rules` | 部署 Firestore rules |
