@@ -145,7 +145,7 @@ def import_transactions(
         else:
             from_amount = parse_int(from_amount_text, f"第 {index} 列的從金額")
             to_amount = parse_int(to_amount_text, f"第 {index} 列的至金額")
-            if from_amount != to_amount:
+            if not transaction_has_dual_amount and from_amount != to_amount:
                 raise ValueError(
                     f"第 {index} 列的從金額 ({from_amount}) 與至金額 ({to_amount}) 不同；目前 SQLite schema 尚未切到雙金額欄位。"
                 )
