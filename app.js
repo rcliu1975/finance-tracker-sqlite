@@ -117,6 +117,7 @@ const state = {
   derivedDataRevision: 0,
   derivedDataCache: {
     accountBalances: new Map(),
+    accountBaseValues: new Map(),
     desktopBalanceMaps: new Map(),
     filteredTransactions: new Map(),
     chartData: new Map(),
@@ -223,6 +224,7 @@ function closeMessageModal() {
 function invalidateDerivedDataCache() {
   state.derivedDataRevision += 1;
   state.derivedDataCache.accountBalances.clear();
+  state.derivedDataCache.accountBaseValues.clear();
   state.derivedDataCache.desktopBalanceMaps.clear();
   state.derivedDataCache.filteredTransactions.clear();
   state.derivedDataCache.chartData.clear();
@@ -1849,10 +1851,11 @@ function renderDesktopSidebar() {
   }
 
   const balances = buildAccountBalances(state.desktopDate);
+  const baseValues = buildAccountBaseValues(state.desktopDate);
   const monthSnapshot = getMonthlySnapshot(state.desktopDate);
-  const groups = buildDesktopSidebarGroups(balances, monthSnapshot);
-  const assetTotal = getAccountBalanceTotal("asset", balances);
-  const liabilityTotal = getAccountBalanceTotal("liability", balances);
+  const groups = buildDesktopSidebarGroups(balances, baseValues, monthSnapshot);
+  const assetTotal = getAccountBalanceTotal("asset", balances, monthSnapshot, baseValues);
+  const liabilityTotal = getAccountBalanceTotal("liability", balances, monthSnapshot, baseValues);
   const structureRenderKey = getDesktopSidebarStructureRenderKey(groups);
 
   $("desktopNetWorth").textContent = fmt(assetTotal - liabilityTotal);
@@ -1883,6 +1886,7 @@ function renderDesktopSidebar() {
                   <div class="desktop-account-meta">
                     <strong data-desktop-item-name="${escapeAttr(item.key)}">${escapeHtml(item.name)}</strong>
                     <span data-desktop-item-value="${escapeAttr(item.key)}">${item.valueText}</span>
+                    ${item.baseValueText ? `<small data-desktop-item-base-value="${escapeAttr(item.key)}">${item.baseValueText}</small>` : ""}
                   </div>
                 </button>`;
               })
@@ -1915,6 +1919,10 @@ function syncDesktopSidebarContent(groups) {
       const valueNode = document.querySelector(`[data-desktop-item-value="${selectorKey}"]`);
       if (valueNode && valueNode.textContent !== item.valueText) {
         valueNode.textContent = item.valueText;
+      }
+      const baseValueNode = document.querySelector(`[data-desktop-item-base-value="${selectorKey}"]`);
+      if (baseValueNode && baseValueNode.textContent !== (item.baseValueText || "")) {
+        baseValueNode.textContent = item.baseValueText || "";
       }
     });
   });
@@ -2621,11 +2629,11 @@ function getSnapshotAccountBaseValue(snapshot, accountId, fallbackValue = 0) {
   return Number(snapshot?.closingBaseValues?.[accountId] ?? fallbackValue ?? 0);
 }
 
-function buildDesktopSidebarGroups(balances, monthSnapshot = null) {
+function buildDesktopSidebarGroups(balances, baseValues, monthSnapshot = null) {
   const monthTransactions = getDesktopLoadedMonthTransactions();
 
-  const assetItems = buildDesktopAccountItems("asset", balances, monthSnapshot);
-  const liabilityItems = buildDesktopAccountItems("liability", balances, monthSnapshot);
+  const assetItems = buildDesktopAccountItems("asset", balances, baseValues, monthSnapshot);
+  const liabilityItems = buildDesktopAccountItems("liability", balances, baseValues, monthSnapshot);
 
   const incomeItems = buildDesktopCategoryItems("income", monthTransactions, monthSnapshot);
   const expenseItems = buildDesktopCategoryItems("expense", monthTransactions, monthSnapshot);
@@ -2638,14 +2646,14 @@ function buildDesktopSidebarGroups(balances, monthSnapshot = null) {
       label: "資產",
       badge: "A",
       items: assetItems,
-      totalText: fmt(getAccountBalanceTotal("asset", balances, monthSnapshot))
+      totalText: fmt(getAccountBalanceTotal("asset", balances, monthSnapshot, baseValues))
     },
     {
       key: "liability",
       label: "負債",
       badge: "L",
       items: liabilityItems,
-      totalText: fmt(getAccountBalanceTotal("liability", balances, monthSnapshot))
+      totalText: fmt(getAccountBalanceTotal("liability", balances, monthSnapshot, baseValues))
     },
     {
       key: "income",
@@ -2686,7 +2694,7 @@ function buildDesktopSidebarGroups(balances, monthSnapshot = null) {
   ];
 }
 
-function buildDesktopAccountItems(type, balances, monthSnapshot = null) {
+function buildDesktopAccountItems(type, balances, baseValues, monthSnapshot = null) {
   return state.accounts
     .filter((account) => inferAccountType(account) === type)
     .sort(sortItemsByOrder)
@@ -2698,11 +2706,9 @@ function buildDesktopAccountItems(type, balances, monthSnapshot = null) {
         balances[account.id] ?? account.balance ?? 0,
         getAccountCurrency(account)
       ),
-      baseValueText: fmt(
-        monthSnapshot
-          ? getSnapshotAccountBaseValue(monthSnapshot, account.id, balances[account.id] ?? account.balance ?? 0)
-          : balances[account.id] ?? account.balance ?? 0
-      )
+      baseValueText: isForeignCurrencyAccount(account)
+        ? fmt(monthSnapshot ? getSnapshotAccountBaseValue(monthSnapshot, account.id, baseValues[account.id] ?? 0) : baseValues[account.id] ?? 0)
+        : ""
     }));
 }
 
@@ -2733,7 +2739,7 @@ function buildDesktopCategoryItems(type, monthTransactions, monthSnapshot = null
     });
 }
 
-function getAccountBalanceTotal(type, balances, monthSnapshot = null) {
+function getAccountBalanceTotal(type, balances, monthSnapshot = null, baseValues = null) {
   return state.accounts
     .filter((account) => inferAccountType(account) === type)
     .reduce(
@@ -2741,8 +2747,8 @@ function getAccountBalanceTotal(type, balances, monthSnapshot = null) {
         sum +
         Number(
           monthSnapshot
-            ? getSnapshotAccountBaseValue(monthSnapshot, account.id, balances[account.id] ?? account.balance ?? 0)
-            : balances[account.id] ?? account.balance ?? 0
+            ? getSnapshotAccountBaseValue(monthSnapshot, account.id, baseValues?.[account.id] ?? balances[account.id] ?? account.balance ?? 0)
+            : baseValues?.[account.id] ?? balances[account.id] ?? account.balance ?? 0
         ),
       0
     );
@@ -3439,6 +3445,43 @@ function buildAccountBalances(maxMonth = "") {
   return balances;
 }
 
+function buildAccountBaseValues(maxMonth = "") {
+  const cacheKey = `${state.derivedDataRevision}:${maxMonth || "*"}`;
+  const cached = state.derivedDataCache.accountBaseValues.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const snapshot = maxMonth ? getMonthlySnapshot(maxMonth) : getLatestUsableSnapshotBefore("9999-99");
+  const snapshotMonth = snapshot?.month || "";
+  const baseValues = Object.fromEntries(
+    state.accounts.map((account) => [account.id, isForeignCurrencyAccount(account) ? 0 : Number(account.balance || 0)])
+  );
+
+  if (snapshot?.closingBaseValues) {
+    state.accounts.forEach((account) => {
+      baseValues[account.id] = Number(snapshot.closingBaseValues?.[account.id] ?? baseValues[account.id] ?? 0);
+    });
+  }
+
+  for (const transaction of state.transactions) {
+    const transactionMonth = monthKey(transaction.date);
+    if (snapshotMonth && transactionMonth <= snapshotMonth) {
+      continue;
+    }
+    if (maxMonth && transactionMonth > maxMonth) {
+      continue;
+    }
+
+    state.accounts.forEach((account) => {
+      baseValues[account.id] = (baseValues[account.id] || 0) + getAccountBaseDelta(transaction, account.id);
+    });
+  }
+
+  state.derivedDataCache.accountBaseValues.set(cacheKey, baseValues);
+  return baseValues;
+}
+
 function getSnapshotMonthIncome(snapshotMonth) {
   return Number(getMonthlySnapshot(snapshotMonth)?.incomeTotal || 0);
 }
@@ -3455,10 +3498,11 @@ function renderOverview() {
   const currentMonth = currentMonthKey();
   const currentSnapshot = getMonthlySnapshot(currentMonth);
   const balances = currentSnapshot ? null : buildAccountBalances();
+  const baseValues = currentSnapshot ? null : buildAccountBaseValues();
   const netWorth = currentSnapshot
     ? Number(currentSnapshot.netWorth || 0)
     : state.accounts.reduce((sum, account) => {
-        const value = Number((balances || {})[account.id] || 0);
+        const value = Number((baseValues || {})[account.id] ?? (balances || {})[account.id] || 0);
         return sum + (inferAccountType(account) === "liability" ? -value : value);
       }, 0);
   $("netWorth").textContent = fmt(netWorth);
@@ -3667,7 +3711,7 @@ function renderDesktopEditableTransactions(transactions) {
           <td>${renderDesktopItemEditor("to", toItem)}</td>
           <td><input name="toAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "to"))}" /></td>
           <td><input name="note" list="commonSummaryList" value="${escapeAttr(transaction.note || "")}" /></td>
-          ${showBalance ? `<td>${fmt(balanceMap[transaction.id] ?? 0)}</td>` : ""}
+          ${showBalance ? `<td>${escapeHtml(formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0))}</td>` : ""}
         </tr>`;
       })
       .join("") ||
@@ -3755,7 +3799,7 @@ function renderDesktopReadonlyTransactions(transactions) {
           <td>${escapeHtml(itemText(getTransactionToItem(transaction)))}</td>
           <td>${escapeHtml(getTransactionDisplayAmountText(transaction, "to"))}</td>
           <td>${escapeHtml(transaction.note || "-")}</td>
-          ${showBalance ? `<td>${fmt(balanceMap[transaction.id] ?? 0)}</td>` : ""}
+          ${showBalance ? `<td>${escapeHtml(formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0))}</td>` : ""}
         </tr>`;
       })
       .join("") ||
@@ -3900,6 +3944,7 @@ function getDesktopBalanceScope() {
 
 function getDesktopBalanceStart(scope, targetMonth = "") {
   const snapshot = targetMonth ? getLatestUsableSnapshotBefore(targetMonth) : null;
+  const baseValues = buildAccountBaseValues(targetMonth);
   if (scope.mode === "account") {
     if (snapshot?.closingBalances) {
       return Number(snapshot.closingBalances?.[scope.id] || 0);
@@ -3914,22 +3959,22 @@ function getDesktopBalanceStart(scope, targetMonth = "") {
     }
     const assetTotal = state.accounts
       .filter((account) => inferAccountType(account) === "asset")
-      .reduce((sum, account) => sum + Number(account.balance || 0), 0);
+      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? account.balance || 0), 0);
     const liabilityTotal = state.accounts
       .filter((account) => inferAccountType(account) === "liability")
-      .reduce((sum, account) => sum + Number(account.balance || 0), 0);
+      .reduce((sum, account) => sum + Number(baseValues[account.id] ?? account.balance || 0), 0);
     return assetTotal - liabilityTotal;
   }
 
-  if (snapshot?.closingBalances) {
+  if (snapshot?.closingBaseValues) {
     return state.accounts
       .filter((account) => inferAccountType(account) === scope.type)
-      .reduce((sum, account) => sum + Number(snapshot.closingBalances?.[account.id] || 0), 0);
+      .reduce((sum, account) => sum + Number(snapshot.closingBaseValues?.[account.id] || 0), 0);
   }
 
   return state.accounts
     .filter((account) => inferAccountType(account) === scope.type)
-    .reduce((sum, account) => sum + Number(account.balance || 0), 0);
+    .reduce((sum, account) => sum + Number(baseValues[account.id] ?? account.balance || 0), 0);
 }
 
 function getDesktopBalanceDelta(transaction, scope) {
@@ -3954,6 +3999,14 @@ function getDesktopBalanceDelta(transaction, scope) {
 
 function getAccountDelta(transaction, accountId) {
   return getTransactionAccountContribution(transaction, accountId);
+}
+
+function formatDesktopBalanceValue(scope, value) {
+  if (scope?.mode === "account") {
+    const account = state.accounts.find((item) => item.id === scope.id);
+    return fmtAccountAmount(value, getAccountCurrency(account));
+  }
+  return fmt(value);
 }
 
 function getAccountBaseDelta(transaction, accountId) {

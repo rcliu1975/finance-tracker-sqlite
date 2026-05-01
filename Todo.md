@@ -37,15 +37,15 @@
 4. `sqlite/schema.sql` 已切到 `accounts.currency`、`transactions.from_amount/to_amount`
 5. SQLite import / export / verify / bridge 已切到新欄位，並保留必要的舊資料相容讀取
 6. `monthly_snapshots` 已新增月底本位幣估值與匯率欄位，snapshot rebuild 已會寫入
+7. 前端交易表單、列表、編輯流程已切到 `fromAmount` / `toAmount`
+8. 桌面版 sidebar、總覽、圖表與矩陣匯出已切到 snapshot 本位幣估值口徑
 
 ## 待實作
 
 ### 1. 前端與報表
 
-1. 已完成前端交易表單、列表、編輯流程接上 `fromAmount` / `toAmount`，仍需補更多外幣顯示細節
-2. 已完成桌面版 sidebar 總額與矩陣匯出接上 snapshot 本位幣估值，仍需檢查圖表與所有摘要區塊
-3. 定義匯差是否只做估值用途，或納入正式損益欄位
-4. 定義驗帳公式與總資產報表口徑
+1. 定義匯差是否只做估值用途，或納入正式損益欄位
+2. 定義驗帳公式與總資產報表口徑
 
 ### 2. 效能與更新範圍
 
