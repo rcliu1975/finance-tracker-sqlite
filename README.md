@@ -407,6 +407,7 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
 
 ## 補充文件
 
+- [SNAPSHOT_BEHAVIOR.md](SNAPSHOT_BEHAVIOR.md): 哪些操作會標 dirty、哪些會直接重建 snapshot
 - [SQLITE_QUICKSTART.md](SQLITE_QUICKSTART.md): SQLite 快速啟動筆記
 - [sqlite/README.md](sqlite/README.md): SQLite schema 與資料對照
 - [sqlite/firestore-mapping.md](sqlite/firestore-mapping.md): Firestore 到 SQLite 對照
