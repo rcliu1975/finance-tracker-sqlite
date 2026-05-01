@@ -111,8 +111,16 @@
                 </div>
               </label>
               <label class="desktop-half-field">
-                金額
+                <span id="desktopSingleAmountLabel">金額</span>
                 <input type="number" name="amount" min="1" step="1" required />
+              </label>
+              <label id="desktopFromAmountField" class="desktop-half-field hidden">
+                從金額
+                <input type="number" name="fromAmount" min="1" step="1" />
+              </label>
+              <label id="desktopToAmountField" class="desktop-half-field hidden">
+                至金額
+                <input type="number" name="toAmount" min="1" step="1" />
               </label>
               <label>
                 摘要
@@ -187,6 +195,10 @@
               <label id="desktopItemBalanceField">
                 期初餘額
                 <input name="balance" type="number" value="0" />
+              </label>
+              <label id="desktopItemCurrencyField">
+                幣別
+                <input name="currency" value="TWD" maxlength="8" placeholder="TWD" />
               </label>
               <label>
                 次序
@@ -290,8 +302,16 @@
               </div>
             </label>
             <label class="tablet-half tablet-one-third">
-              金額
+              <span id="mobileSingleAmountLabel">金額</span>
               <input type="number" name="amount" min="1" step="1" required />
+            </label>
+            <label id="mobileFromAmountField" class="tablet-half tablet-one-third hidden">
+              從金額
+              <input type="number" name="fromAmount" min="1" step="1" />
+            </label>
+            <label id="mobileToAmountField" class="tablet-half tablet-one-third hidden">
+              至金額
+              <input type="number" name="toAmount" min="1" step="1" />
             </label>
             <label class="full tablet-two-thirds">
               摘要
@@ -331,9 +351,10 @@
                 <tr>
                   <th>日期(星期)</th>
                   <th>從項目</th>
+                  <th>從金額</th>
                   <th>類型</th>
                   <th>至項目</th>
-                  <th>金額</th>
+                  <th>至金額</th>
                   <th>摘要</th>
                 </tr>
               </thead>
@@ -366,6 +387,10 @@
             <label id="mobileItemBalanceField">
               初始餘額
               <input type="number" name="balance" value="0" />
+            </label>
+            <label id="mobileItemCurrencyField">
+              幣別
+              <input name="currency" value="TWD" maxlength="8" placeholder="TWD" />
             </label>
             <label>
               次序
