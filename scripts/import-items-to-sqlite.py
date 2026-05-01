@@ -29,6 +29,11 @@ def read_user_id(conn, user_id: str) -> str:
     return str(row["id"])
 
 
+def has_column(conn, table: str, column_name: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(str(row["name"] or "") == column_name for row in rows)
+
+
 def load_existing_names(conn, user_id: str) -> dict[str, tuple[str, str, str]]:
     rows = conn.execute(
         """
@@ -141,6 +146,7 @@ def save_snapshot_dirty_month(conn, user_id: str, dirty_month: str) -> None:
 def import_items(conn, user_id: str, rows: list[dict[str, str]]) -> tuple[int, int, int, str]:
     existing_names = load_existing_names(conn, user_id)
     earliest_transaction_month, earliest_account_months = load_earliest_transaction_months(conn, user_id)
+    account_has_currency = has_column(conn, "accounts", "currency")
     created_count = 0
     updated_count = 0
     skipped_count = 0
@@ -166,6 +172,7 @@ def import_items(conn, user_id: str, rows: list[dict[str, str]]) -> tuple[int, i
 
         if table == "accounts":
             opening_balance = parse_int(row.get("期初餘額", ""), f"第 {index} 列的期初餘額", allow_blank=True, default=0)
+            currency = normalize_header(row.get("幣別", "")).upper() or "TWD"
             is_protected = int(("accounts", item_type, name) in PROTECTED_ITEMS)
             if existing:
                 item_id = existing[1]
@@ -179,24 +186,43 @@ def import_items(conn, user_id: str, rows: list[dict[str, str]]) -> tuple[int, i
                         dirty_month,
                         earliest_account_months.get(item_id, "") or earliest_transaction_month,
                     )
-                conn.execute(
-                    """
-                    UPDATE accounts
-                    SET name = ?, type = ?, opening_balance = ?, order_index = ?, is_protected = ?, updated_at = unixepoch()
-                    WHERE user_id = ? AND id = ?
-                    """,
-                    (name, item_type, opening_balance, order_index, is_protected, user_id, item_id),
-                )
+                if account_has_currency:
+                    conn.execute(
+                        """
+                        UPDATE accounts
+                        SET name = ?, type = ?, currency = ?, opening_balance = ?, order_index = ?, is_protected = ?, updated_at = unixepoch()
+                        WHERE user_id = ? AND id = ?
+                        """,
+                        (name, item_type, currency, opening_balance, order_index, is_protected, user_id, item_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE accounts
+                        SET name = ?, type = ?, opening_balance = ?, order_index = ?, is_protected = ?, updated_at = unixepoch()
+                        WHERE user_id = ? AND id = ?
+                        """,
+                        (name, item_type, opening_balance, order_index, is_protected, user_id, item_id),
+                    )
                 updated_count += 1
             else:
                 item_id = next_id("acc")
-                conn.execute(
-                    """
-                    INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (item_id, user_id, name, item_type, opening_balance, order_index, is_protected),
-                )
+                if account_has_currency:
+                    conn.execute(
+                        """
+                        INSERT INTO accounts (id, user_id, name, type, currency, opening_balance, order_index, is_protected)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (item_id, user_id, name, item_type, currency, opening_balance, order_index, is_protected),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO accounts (id, user_id, name, type, opening_balance, order_index, is_protected)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (item_id, user_id, name, item_type, opening_balance, order_index, is_protected),
+                    )
                 created_count += 1
             existing_names[name] = ("accounts", item_id, item_type)
             continue

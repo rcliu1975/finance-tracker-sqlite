@@ -58,16 +58,18 @@ def export_rows(conn, user_id: str) -> list[list[str]]:
         (user_id,),
     ).fetchall()
 
-    rows: list[list[str]] = [["日期", "從項目", "至項目", "金額", "摘要", "備註"]]
+    rows: list[list[str]] = [["日期", "從項目", "從金額", "至項目", "至金額", "摘要", "備註"]]
     for row in transaction_rows:
         from_id = str(row["from_id"] or "")
         to_id = str(row["to_id"] or "")
+        amount = str(int(row["amount"] or 0))
         rows.append(
             [
                 str(row["txn_date"] or ""),
                 resolve_item_name(str(row["from_kind"] or ""), from_id, account_names, category_names),
+                amount,
                 resolve_item_name(str(row["to_kind"] or ""), to_id, account_names, category_names),
-                str(int(row["amount"] or 0)),
+                amount,
                 str(row["note"] or ""),
                 str(row["memo"] or ""),
             ]

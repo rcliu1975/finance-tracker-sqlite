@@ -151,13 +151,28 @@ npm run serve
 
 ```bash
 npm run sqlite:generate-fx-csv-examples -- \
-  --output-dir ./examples/foreign-currency-csv
+  --output-dir ./.tmp/foreign-currency-csv-examples
 ```
 
-會產生兩份範例：
+會在指定目錄產生兩份範例：
 
 - `items-foreign-currency-example.csv`
 - `transactions-foreign-currency-example.csv`
+
+若你手上是舊版匯入 CSV，可先轉成新版外幣規劃格式：
+
+```bash
+npm run sqlite:convert-legacy-csv -- \
+  --legacy-items-csv ~/item_2025_UTF-8_import.csv \
+  --legacy-transactions-csv ~/transactionP-2025_utf-8_import.csv \
+  --output-dir ./.tmp/converted-foreign-currency-csv
+```
+
+轉換結果：
+
+- 項目 CSV 會新增 `幣別` 欄位
+- 舊版 `金額` 會展開成新版 `從金額` / `至金額`
+- 帳戶列 `幣別` 會先用 `--base-currency` 補預設值，預設為 `TWD`
 
 目前規劃中的欄位方向：
 
@@ -187,11 +202,17 @@ npm run sqlite:export-items -- \
 
 - `類別`
 - `項目名稱`
+- `幣別`
 - `期初餘額`
 - `次序`
 - `保護項目`
 - `ID`
 - `常用摘要`
+
+說明：
+
+- 現行 schema 若尚未加入 `accounts.currency`，帳戶列 `幣別` 會先預設輸出為 `TWD`
+- 分類列 `幣別` 會保持空白
 
 ### 匯入 SQLite 項目 CSV
 
@@ -211,6 +232,7 @@ npm run sqlite:import-items -- \
 
 - 同名同類型項目會更新
 - 新項目會新增到資料庫
+- 帳戶列可直接提供 `幣別`；若現行 schema 尚未加入 `accounts.currency`，會先接受但不寫入資料庫
 - 類別項目的 `常用摘要` 會同步更新到 `common_summaries`
 - 若有帳戶期初餘額變動，會更新 `user_settings.snapshot_dirty_from_month`
 - 若目標 `user` 已經有 transaction 記錄，匯入會直接拒絕
@@ -498,9 +520,11 @@ SQLite 主線之外的相容說明已移到：
 
 ## 匯入記錄 CSV 格式範例
 
-`匯入記錄` 目前會讀取下列欄位：
+`匯入記錄` CLI 目前可讀兩種格式：
 
-- 必填：`日期`、`從項目`、`至項目`、`金額`
+- 舊版：`日期`、`從項目`、`至項目`、`金額`
+- 新版：`日期`、`從項目`、`從金額`、`至項目`、`至金額`
+
 - 選填：`摘要`、`備註`
 
 說明：
@@ -509,6 +533,7 @@ SQLite 主線之外的相容說明已移到：
 - 系統會依 `從項目` 與 `至項目` 自動判斷記錄類型，不依賴 `類型` 欄位
 - `摘要`、`備註` 可留空
 - 不合法的記錄路徑或格式錯誤資料會被略過，不會匯入
+- 在資料庫 schema 還沒切到 `from_amount` / `to_amount` 前，新版 `從金額` 與 `至金額` 若不同，匯入會直接拒絕
 
 範例：
 
@@ -519,3 +544,15 @@ SQLite 主線之外的相容說明已移到：
 2026-04-03,利息,現金,35,活存利息,
 2026-04-04,現金,應付帳款,5000,信用卡還款,四月帳單
 ```
+
+外幣版規劃中的新格式則改成：
+
+```csv
+日期,從項目,從金額,至項目,至金額,摘要,備註
+2026-04-01,薪資收入,50000,現金,50000,四月薪資,
+2026-04-02,現金,120,餐飲費,120,早餐,
+2026-04-03,現金,32000,美元帳戶,1000,換匯買美元,
+2026-04-04,現金,5000,應付帳款,5000,信用卡還款,四月帳單
+```
+
+目前 `sqlite:export-records` 已改成輸出新欄位名稱；若來源資料仍是舊 schema，會先把單一金額展開成相同的 `從金額` / `至金額`。

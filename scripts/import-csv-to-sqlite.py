@@ -124,6 +124,20 @@ def import_transactions(
         if not to_ref:
             raise ValueError(f"第 {index} 列找不到至項目：{to_name}")
 
+        legacy_amount = str(row.get("金額", "") or "").strip()
+        from_amount_text = str(row.get("從金額", "") or "").strip()
+        to_amount_text = str(row.get("至金額", "") or "").strip()
+        if legacy_amount:
+            amount = parse_int(legacy_amount, f"第 {index} 列的金額")
+        else:
+            from_amount = parse_int(from_amount_text, f"第 {index} 列的從金額")
+            to_amount = parse_int(to_amount_text, f"第 {index} 列的至金額")
+            if from_amount != to_amount:
+                raise ValueError(
+                    f"第 {index} 列的從金額 ({from_amount}) 與至金額 ({to_amount}) 不同；目前 SQLite schema 尚未切到雙金額欄位。"
+                )
+            amount = from_amount
+
         connection.execute(
             """
             INSERT INTO transactions (
@@ -138,7 +152,7 @@ def import_transactions(
                 from_ref.item_id,
                 transaction_kind(to_ref.collection),
                 to_ref.item_id,
-                parse_int(row.get("金額", ""), f"第 {index} 列的金額"),
+                amount,
                 str(row.get("摘要", "") or "").strip(),
                 str(row.get("備註", "") or "").strip(),
             ),

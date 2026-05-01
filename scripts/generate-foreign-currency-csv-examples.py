@@ -41,8 +41,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="./examples/foreign-currency-csv",
-        help="Directory to write the example CSV files. Default: ./examples/foreign-currency-csv",
+        default="./.tmp/foreign-currency-csv-examples",
+        help="Directory to write the example CSV files. Default: ./.tmp/foreign-currency-csv-examples",
     )
     return parser.parse_args()
 
