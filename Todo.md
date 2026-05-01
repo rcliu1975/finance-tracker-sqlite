@@ -55,3 +55,9 @@
 4. 減少桌面版 `innerHTML` 整塊重建，改成較小範圍更新
 5. 優先處理桌面版 sidebar 結構更新與 transaction table body 更新
 6. 評估桌面版選年後，背景載入該年度 `monthlySnapshots` 並做 year-level cache
+
+### 3. 安全
+
+1. `sqlite-http-bridge` 仍回 `Access-Control-Allow-Origin: *`，需收斂成 allowlist
+2. bridge session token 目前保存在瀏覽器 `localStorage`，若前端出現 XSS 會直接外洩
+3. 前端仍大量依賴 `innerHTML`，需逐步縮小高頻可寫區塊
