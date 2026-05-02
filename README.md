@@ -230,6 +230,60 @@ npm run sqlite:frontend -- \
 3. 啟動 `cloudflared tunnel run <your-tunnel-name>`
 4. 從外部打開 `https://www.kennylab.online`
 
+#### 正式站固定更新流程
+
+如果你平常是用：
+
+- `npm run sqlite:frontend -- ...`
+- `cloudflared tunnel run <your-tunnel-name>`
+- `/etc/caddy/Caddyfile`
+
+那正式站更新的固定操作建議如下。
+
+1. 修改前端 / bridge 程式碼後，先確認本機檔案已更新。
+2. 如果有改到 `app.js`、`styles.css` 這種靜態檔，優先做 cache bust：
+
+```html
+<script type="module" src="app.js?v=20260502-2132"></script>
+```
+
+或等價地更新 `styles.css?v=...`。原因是 Cloudflare 可能持續快取舊版靜態檔，只重開 process 不一定會立刻生效。
+
+3. 停掉舊的 `sqlite:frontend` 與 `cloudflared`。
+4. 重新啟動 SQLite 前端與 bridge：
+
+```bash
+npm run sqlite:frontend -- \
+  --db ~/finance-tracker.db \
+  --user-id local-user \
+  --bridge-host 127.0.0.1 \
+  --serve-host 127.0.0.1 \
+  --public-origin https://moneybook.kennylab.online \
+  --login-email angeline@home.org \
+  --login-password '1loveroger'
+```
+
+5. 確認 Caddy 仍在把：
+
+- `/` 代理到 `127.0.0.1:5173`
+- `/bridge/` 代理到 `127.0.0.1:8765`
+
+如果只改前端或 bridge 程式，通常不需要重啟 Caddy；只有 `Caddyfile` 有變更時才需要 reload / restart。
+
+6. 重新啟動 tunnel：
+
+```bash
+./cloudflared/cloudflared tunnel run kennylab-tunnel
+```
+
+7. 驗證公開站是否已吃到新版本：
+
+```bash
+curl -fsSL 'https://moneybook.kennylab.online/app.js?v=check' | rg 'invalidateDerivedDataCache'
+```
+
+如果是檢查 UI 數字，請直接到公開站重新登入並確認目標月份畫面。
+
 #### 什麼時候要加 bridge 內建登入
 
 如果你沒有 Cloudflare Access、反向代理 Basic Auth、Tailscale Funnel ACL 或其他等價保護，建議仍然開 bridge 內建登入：
