@@ -269,6 +269,17 @@ function previousMonth(month) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 }
 
+function nextMonth(month) {
+  const value = String(month || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(value)) {
+    return "";
+  }
+  const [year, monthValue] = value.split("-").map(Number);
+  const date = new Date(year, monthValue - 1, 1);
+  date.setMonth(date.getMonth() + 1);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+}
+
 function isSnapshotUsable(month) {
   const value = String(month || "").trim();
   if (!/^\d{4}-\d{2}$/.test(value)) {
@@ -291,6 +302,18 @@ function getLatestUsableSnapshotBefore(month) {
     .filter((snapshot) => isSnapshotUsable(snapshot.month) && snapshot.month < target)
     .sort((a, b) => String(b.month || "").localeCompare(String(a.month || "")));
   return candidates[0] || null;
+}
+
+function getLatestUsableSnapshotUpTo(month) {
+  const target = String(month || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(target)) {
+    return getLatestUsableSnapshotBefore("9999-99");
+  }
+  const exactSnapshot = getMonthlySnapshot(target);
+  if (exactSnapshot) {
+    return exactSnapshot;
+  }
+  return getLatestUsableSnapshotBefore(target);
 }
 
 if (hasBackendConfig) {
@@ -558,9 +581,11 @@ function upsertMonthlySnapshot(snapshot) {
   const index = state.monthlySnapshots.findIndex((item) => item.month === snapshot.month);
   if (index >= 0) {
     state.monthlySnapshots[index] = snapshot;
+    invalidateDerivedDataCache();
     return;
   }
   state.monthlySnapshots.push(snapshot);
+  invalidateDerivedDataCache();
 }
 
 async function loadSnapshotMonth(month) {
@@ -581,9 +606,17 @@ async function loadLatestSnapshotBefore(targetMonth) {
     return;
   }
   state.loadedLatestSnapshotBeforeTargets.add(normalizedMonth);
-  const snapshot = await dataBackend.loadLatestSnapshotBeforeMonth(normalizedMonth);
-  if (snapshot) {
+  let cursorMonth = normalizedMonth;
+  while (/^\d{4}-\d{2}$/.test(cursorMonth)) {
+    const snapshot = await dataBackend.loadLatestSnapshotBeforeMonth(cursorMonth);
+    if (!snapshot?.month) {
+      return;
+    }
     upsertMonthlySnapshot(snapshot);
+    if (isSnapshotUsable(snapshot.month)) {
+      return;
+    }
+    cursorMonth = snapshot.month;
   }
 }
 
@@ -648,16 +681,23 @@ function getTransactionQueryScope() {
   const dirtyFromMonth = String(state.settings.snapshotDirtyFromMonth || "").trim();
   if (state.desktopMode) {
     const endMonth = state.desktopDate;
-    const hasBaseSnapshot = Boolean(getLatestUsableSnapshotBefore(endMonth));
+    const baseSnapshot = getLatestUsableSnapshotUpTo(endMonth);
     const sixMonthFloor = previousMonth(previousMonth(previousMonth(previousMonth(previousMonth(endMonth)))));
-    if (!dirtyFromMonth && !hasBaseSnapshot) {
+    if (!dirtyFromMonth && !baseSnapshot) {
       return {
         startDate: `${sixMonthFloor}-01`,
         endDate: `${endMonth}-31`
       };
     }
-    const desiredStartMonth = dirtyFromMonth && dirtyFromMonth <= endMonth ? dirtyFromMonth : endMonth;
-    const startMonth = desiredStartMonth < sixMonthFloor ? sixMonthFloor : desiredStartMonth;
+    const candidateMonths = [endMonth];
+    const snapshotCatchupMonth = nextMonth(baseSnapshot?.month || "");
+    if (snapshotCatchupMonth && snapshotCatchupMonth <= endMonth) {
+      candidateMonths.push(snapshotCatchupMonth);
+    }
+    if (dirtyFromMonth && dirtyFromMonth <= endMonth) {
+      candidateMonths.push(dirtyFromMonth);
+    }
+    const startMonth = candidateMonths.sort()[0] || endMonth;
     return {
       startDate: `${startMonth}-01`,
       endDate: `${endMonth}-31`
@@ -666,8 +706,8 @@ function getTransactionQueryScope() {
 
   const { startDate, endDate } = getMobileRangeDateBounds();
   const endMonth = monthKey(endDate || currentMonthKey());
-  const hasBaseSnapshot = Boolean(getLatestUsableSnapshotBefore(endMonth) || getMonthlySnapshot(endMonth));
-  if (!dirtyFromMonth && !hasBaseSnapshot) {
+  const baseSnapshot = getLatestUsableSnapshotUpTo(endMonth);
+  if (!dirtyFromMonth && !baseSnapshot) {
     return {
       startDate,
       endDate
@@ -675,7 +715,15 @@ function getTransactionQueryScope() {
   }
 
   const startMonth = monthKey(startDate);
-  const scopedStartMonth = dirtyFromMonth && dirtyFromMonth <= endMonth ? earlierMonth(dirtyFromMonth, startMonth) : startMonth;
+  const candidateMonths = [startMonth];
+  const snapshotCatchupMonth = nextMonth(baseSnapshot?.month || "");
+  if (snapshotCatchupMonth && snapshotCatchupMonth <= endMonth) {
+    candidateMonths.push(snapshotCatchupMonth);
+  }
+  if (dirtyFromMonth && dirtyFromMonth <= endMonth) {
+    candidateMonths.push(dirtyFromMonth);
+  }
+  const scopedStartMonth = candidateMonths.sort()[0] || startMonth;
   return {
     startDate: scopedStartMonth ? `${scopedStartMonth}-01` : startDate,
     endDate
@@ -3447,7 +3495,7 @@ function buildAccountBalances(maxMonth = "") {
     return cached;
   }
 
-  const snapshot = maxMonth ? getMonthlySnapshot(maxMonth) : getLatestUsableSnapshotBefore("9999-99");
+  const snapshot = maxMonth ? getLatestUsableSnapshotUpTo(maxMonth) : getLatestUsableSnapshotBefore("9999-99");
   const snapshotMonth = snapshot?.month || "";
   const balances = Object.fromEntries(state.accounts.map((account) => [account.id, Number(account.balance || 0)]));
 
@@ -3482,7 +3530,7 @@ function buildAccountBaseValues(maxMonth = "") {
     return cached;
   }
 
-  const snapshot = maxMonth ? getMonthlySnapshot(maxMonth) : getLatestUsableSnapshotBefore("9999-99");
+  const snapshot = maxMonth ? getLatestUsableSnapshotUpTo(maxMonth) : getLatestUsableSnapshotBefore("9999-99");
   const snapshotMonth = snapshot?.month || "";
   const baseValues = Object.fromEntries(
     state.accounts.map((account) => [account.id, isForeignCurrencyAccount(account) ? 0 : Number(account.balance || 0)])
