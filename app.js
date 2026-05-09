@@ -168,7 +168,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const BASE_CURRENCY = "TWD";
-const CHART_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/chart.js";
+const CHART_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js";
 let chartScriptLoadPromise = null;
 const decimalFmt = new Intl.NumberFormat("zh-TW", {
   maximumFractionDigits: 0
@@ -181,7 +181,8 @@ const fmt = (value) =>
   }).format(Number(value || 0));
 
 function normalizeCurrencyCode(value) {
-  return String(value || BASE_CURRENCY).trim().toUpperCase() || BASE_CURRENCY;
+  const currency = String(value || BASE_CURRENCY).trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(currency) ? currency : BASE_CURRENCY;
 }
 
 function getAccountCurrency(account) {
@@ -1935,8 +1936,8 @@ function renderDesktopSidebar() {
                   <span class="desktop-account-icon">${escapeHtml(item.icon)}</span>
                   <div class="desktop-account-meta">
                     <strong data-desktop-item-name="${escapeAttr(item.key)}">${escapeHtml(item.name)}</strong>
-                    <span data-desktop-item-value="${escapeAttr(item.key)}">${item.valueText}</span>
-                    ${item.baseValueText ? `<small data-desktop-item-base-value="${escapeAttr(item.key)}">${item.baseValueText}</small>` : ""}
+                    <span data-desktop-item-value="${escapeAttr(item.key)}">${escapeHtml(item.valueText)}</span>
+                    ${item.baseValueText ? `<small data-desktop-item-base-value="${escapeAttr(item.key)}">${escapeHtml(item.baseValueText)}</small>` : ""}
                   </div>
                 </button>`;
               })
@@ -2178,7 +2179,7 @@ function renderDesktopSettings() {
             : "";
           return `<button type="button" class="desktop-settings-item" data-settings-item="${escapeAttr(item.key)}">
             <span class="desktop-settings-icon">${escapeHtml(item.icon)}</span>
-            <span>${escapeHtml(item.name)}<strong>${amount}</strong><small>次序 ${getItemOrder(item)}</small></span>
+            <span>${escapeHtml(item.name)}<strong>${escapeHtml(amount)}</strong><small>次序 ${getItemOrder(item)}</small></span>
             <em class="hidden" data-settings-check="${escapeAttr(item.key)}">✓</em>
           </button>`;
         })

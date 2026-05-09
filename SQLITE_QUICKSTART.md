@@ -17,11 +17,14 @@ npm run sqlite:import-csv -- \
 SQLite UI 啟動時一定要指定登入帳密。最簡單的方式：
 
 ```bash
+export LOGIN_EMAIL=you@example.com
+export LOGIN_PASSWORD='<strong-password>'
+
 npm run sqlite:frontend -- \
   --db ~/finance-tracker-sqlite-test.db \
   --user-id local-user \
-  --login-email you@example.com \
-  --login-password 'strong-password'
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 ```
 
 這個指令會：
@@ -38,7 +41,9 @@ npm run sqlite:frontend -- \
   --user-id local-user \
   --bridge-host 127.0.0.1 \
   --serve-host 127.0.0.1 \
-  --public-origin https://www.kennylab.online
+  --public-origin https://moneybook.example.com \
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 ```
 
 再用 Caddy 或 nginx 在 `127.0.0.1:8080` 代理：
@@ -48,11 +53,10 @@ npm run sqlite:frontend -- \
 
 最後讓 Cloudflared tunnel 指到 `http://127.0.0.1:8080`。完整範例請看 [README.md](README.md) 第 4 節。
 
-如果外層沒有 Cloudflare Access 或其他保護，再補上：
+SQLite bridge 預設需要登入。只有隔離的本機開發可明確改用：
 
 ```bash
-  --login-email you@example.com \
-  --login-password 'strong-password'
+  --allow-unauthenticated
 ```
 
 ## 3. 分開控制 bridge 與前端
@@ -61,7 +65,9 @@ npm run sqlite:frontend -- \
 npm run sqlite:bridge -- \
   --db ~/finance-tracker-sqlite-test.db \
   --user-id local-user \
-  --cors-origin http://127.0.0.1:5173
+  --cors-origin http://127.0.0.1:5173 \
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 
 npm run serve
 ```

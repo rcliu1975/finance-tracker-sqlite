@@ -89,22 +89,27 @@ npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 
 ### 4. 給 Cloudflared 使用的啟動方式
 
-這一節改成預設用「單一 Cloudflared tunnel + 同一個公開 origin」連入，例如 `https://www.kennylab.online`：
+這一節預設用「單一 Cloudflared tunnel + 同一個公開 origin」連入，例如 `https://moneybook.example.com`。SQLite bridge 現在預設需要登入；正式環境請用環境變數傳入帳密，不要把密碼放進 shell history 或文件。
 
 ```bash
+export LOGIN_EMAIL=you@example.com
+export LOGIN_PASSWORD='<strong-password>'
+
 npm run sqlite:frontend -- \
   --db "$DB" \
   --user-id local-user \
   --bridge-host 127.0.0.1 \
   --serve-host 127.0.0.1 \
-  --public-origin https://www.kennylab.online
+  --public-origin https://moneybook.example.com \
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 ```
 
 這個指令會：
 
 1. 產生 `app-config.js`
 2. 啟動 SQLite HTTP bridge
-3. 啟動前端靜態 server
+3. 啟動只允許必要前端檔案的靜態 server
 
 本機會開：
 
@@ -114,7 +119,7 @@ npm run sqlite:frontend -- \
 前端 `app-config.js` 會使用：
 
 ```text
-APP_SQLITE_API_BASE_URL=https://www.kennylab.online/bridge
+APP_SQLITE_API_BASE_URL=https://moneybook.example.com/bridge
 ```
 
 也就是 browser 讀 `index.html` 與呼叫 SQLite bridge，都走同一個公開 origin。
@@ -125,7 +130,7 @@ APP_SQLITE_API_BASE_URL=https://www.kennylab.online/bridge
 
 ```text
 Browser
-  -> https://www.kennylab.online
+  -> https://moneybook.example.com
   -> Cloudflared tunnel
   -> 本機 reverse proxy（Caddy 或 nginx，假設 listen 127.0.0.1:8080）
      -> /        轉給 http://127.0.0.1:5173
@@ -134,10 +139,10 @@ Browser
 
 這個做法的重點：
 
-- 外部只看到一個 hostname：`www.kennylab.online`
+- 外部只看到一個 hostname：`moneybook.example.com`
 - 不需要把 `5173` 或 `8765` 直接暴露到外網
 - browser 端是 same-origin，通常不需要額外處理 CORS
-- 如果外層已有 Cloudflare Access 或其他存取控制，可以不開 bridge 內建 email/password
+- bridge 內建 email/password 是預設保護；Cloudflare Access、反向代理 Basic Auth 或 Tailscale ACL 可當第二層
 
 #### Cloudflared 設定
 
@@ -148,7 +153,7 @@ tunnel: <your-tunnel-id>
 credentials-file: /home/<user>/.cloudflared/<your-tunnel-id>.json
 
 ingress:
-  - hostname: www.kennylab.online
+  - hostname: moneybook.example.com
     service: http://127.0.0.1:8080
   - service: http_status:404
 ```
@@ -190,7 +195,7 @@ caddy run --config /path/to/Caddyfile
 ```nginx
 server {
     listen 127.0.0.1:8080;
-    server_name www.kennylab.online;
+    server_name moneybook.example.com;
 
     location /bridge/ {
         proxy_pass http://127.0.0.1:8765/;
@@ -218,17 +223,22 @@ server {
 1. 啟動 SQLite 前端與 bridge：
 
 ```bash
+export LOGIN_EMAIL=you@example.com
+export LOGIN_PASSWORD='<strong-password>'
+
 npm run sqlite:frontend -- \
   --db "$DB" \
   --user-id local-user \
   --bridge-host 127.0.0.1 \
   --serve-host 127.0.0.1 \
-  --public-origin https://www.kennylab.online
+  --public-origin https://moneybook.example.com \
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 ```
 
 2. 啟動 Caddy 或 nginx，讓 `127.0.0.1:8080` 同時代理前端與 `/bridge/`
 3. 啟動 `cloudflared tunnel run <your-tunnel-name>`
-4. 從外部打開 `https://www.kennylab.online`
+4. 從外部打開 `https://moneybook.example.com`
 
 #### 正式站固定更新流程
 
@@ -253,14 +263,17 @@ npm run sqlite:frontend -- \
 4. 重新啟動 SQLite 前端與 bridge：
 
 ```bash
+export LOGIN_EMAIL=you@example.com
+export LOGIN_PASSWORD='<strong-password>'
+
 npm run sqlite:frontend -- \
   --db ~/finance-tracker.db \
   --user-id local-user \
   --bridge-host 127.0.0.1 \
   --serve-host 127.0.0.1 \
-  --public-origin https://moneybook.kennylab.online \
-  --login-email angeline@home.org \
-  --login-password '1loveroger'
+  --public-origin https://moneybook.example.com \
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 ```
 
 5. 確認 Caddy 仍在把：
@@ -273,20 +286,64 @@ npm run sqlite:frontend -- \
 6. 重新啟動 tunnel：
 
 ```bash
-./cloudflared/cloudflared tunnel run kennylab-tunnel
+cloudflared tunnel run <your-tunnel-name>
+```
+
+如果你希望這兩個常駐程序由 user-level `systemd` 自動維護，可以改用：
+
+```bash
+PUBLIC_ORIGIN=https://moneybook.example.com \
+LOGIN_EMAIL=you@example.com \
+LOGIN_PASSWORD='<strong-password>' \
+TUNNEL_NAME=<your-tunnel-name> \
+DB_PATH=~/finance-tracker.db \
+bash scripts/install_cloudflared_systemd_user.sh
+```
+
+如果還沒把 tunnel 綁定到 DNS，可在第一次安裝時一起執行：
+
+```bash
+RUN_ROUTE_DNS=1 \
+TUNNEL_ID=<your-tunnel-id> \
+PUBLIC_HOSTNAME=moneybook.example.com \
+PUBLIC_ORIGIN=https://moneybook.example.com \
+LOGIN_EMAIL=you@example.com \
+LOGIN_PASSWORD='<strong-password>' \
+TUNNEL_NAME=<your-tunnel-name> \
+DB_PATH=~/finance-tracker.db \
+bash scripts/install_cloudflared_systemd_user.sh
+```
+
+這個安裝腳本會：
+
+1. 建立 `finance-tracker-sqlite-frontend.service`
+2. 建立 `finance-tracker-sqlite-cloudflared.service`
+3. 建立 `~/.config/finance-tracker-sqlite/systemd.env`
+4. `systemctl --user daemon-reload`
+5. `systemctl --user enable --now` 兩個 service
+
+登入帳密不會直接寫進 unit 檔，而是放在只有目前使用者可讀的 `~/.config/finance-tracker-sqlite/systemd.env`。
+
+管理指令：
+
+```bash
+systemctl --user status finance-tracker-sqlite-frontend.service
+systemctl --user status finance-tracker-sqlite-cloudflared.service
+journalctl --user -u finance-tracker-sqlite-frontend.service -f
+journalctl --user -u finance-tracker-sqlite-cloudflared.service -f
 ```
 
 7. 驗證公開站是否已吃到新版本：
 
 ```bash
-curl -fsSL 'https://moneybook.kennylab.online/app.js?v=check' | rg 'invalidateDerivedDataCache'
+curl -fsSL 'https://moneybook.example.com/app.js?v=check' | rg 'invalidateDerivedDataCache'
 ```
 
 如果是檢查 UI 數字，請直接到公開站重新登入並確認目標月份畫面。
 
-#### 什麼時候要加 bridge 內建登入
+#### 本機開發無登入模式
 
-如果你沒有 Cloudflare Access、反向代理 Basic Auth、Tailscale Funnel ACL 或其他等價保護，建議仍然開 bridge 內建登入：
+SQLite bridge 預設要求 email/password。只有在隔離的本機開發環境，才建議明確加 `--allow-unauthenticated`：
 
 ```bash
 npm run sqlite:frontend -- \
@@ -294,12 +351,10 @@ npm run sqlite:frontend -- \
   --user-id local-user \
   --bridge-host 127.0.0.1 \
   --serve-host 127.0.0.1 \
-  --public-origin https://www.kennylab.online \
-  --login-email you@example.com \
-  --login-password 'strong-password'
+  --allow-unauthenticated
 ```
 
-這個 email / password 是 SQLite bridge 的 UI 登入保護，不是前端註冊帳號。對外開放前請使用強密碼，並優先放在 Cloudflare Access 或其他外層保護後面。
+對外開放時不要使用 `--allow-unauthenticated`。bridge 的 email / password 是 SQLite bridge 的 UI 登入保護，不是前端註冊帳號；資料仍歸屬於 `--user-id` 指定的 SQLite user。
 
 ### 5. 登入 UI 開始使用
 
@@ -307,7 +362,28 @@ npm run sqlite:frontend -- \
 
 SQLite bridge 登入是本機 bridge 的保護層，不是前端自助註冊。資料仍歸屬於 `--user-id` 指定的 SQLite user。
 
-### 6. 必要時更新 snapshot
+### 6. Server 端未備份到 GitHub 的檔案
+
+以下檔案或目錄和正式服務運作有關，但不會備份到 GitHub。換機、重裝或災難復原時要另外備份或重建：
+
+| 路徑 | 用途 | 備註 |
+| --- | --- | --- |
+| `.env` | 產生 `app-config.js` 的本機設定來源 | 已被 `.gitignore` 排除；不要放密碼到 repo |
+| `app-config.js` | 前端實際載入的 runtime 設定 | 由 `scripts/generate-app-config.js` 或 `sqlite:frontend` 產生 |
+| `firebase-config.js` | 舊檔名相容設定 | 仍被前端 fallback 載入；不用時可不建立 |
+| `~/finance-tracker.db` | 正式 SQLite database | 私人財務資料，應放 repo 外並定期備份 |
+| `~/finance-tracker-backups/` | 匯出的 CSV / JSON 備份 | 依你的備份路徑調整 |
+| `~/.config/finance-tracker-sqlite/systemd.env` | user-level systemd 啟動用環境變數 | 包含 bridge login；權限應為 `600` |
+| `~/.config/systemd/user/finance-tracker-sqlite-frontend.service` | 前端與 bridge 的 user service | 由 `scripts/install_cloudflared_systemd_user.sh` 建立 |
+| `~/.config/systemd/user/finance-tracker-sqlite-cloudflared.service` | cloudflared tunnel 的 user service | 由 `scripts/install_cloudflared_systemd_user.sh` 建立 |
+| `~/.cloudflared/config.yml` | Cloudflared tunnel ingress 設定 | 不在 repo；包含 tunnel 名稱與 ingress |
+| `~/.cloudflared/<tunnel-id>.json` | Cloudflared tunnel credentials | 敏感檔案，權限應限目前使用者 |
+| `/etc/caddy/Caddyfile` | 正式反向代理設定 | 系統層設定，不在 repo |
+| `/usr/local/bin/cloudflared` 或自訂 `CLOUDFLARED_BIN` | Cloudflared 執行檔 | 依安裝方式可能在不同路徑 |
+
+如果曾經把正式密碼、tunnel credential 或 database 放進 repo 或貼到文件，請視為已外洩並旋轉相關憑證。
+
+### 7. 必要時更新 snapshot
 
 如果你手動改過 database、調整項目期初餘額，或覺得月結數字需要重算：
 
@@ -336,7 +412,7 @@ npm run sqlite:verify-db -- --db "$DB" --user-id local-user
 
 這個重建流程會重新寫入整段 `monthly_snapshots`。目前 `income_total` / `expense_total` 只對應一般收入 / 支出；業外項目請看 `categoryTotals` 或 UI 的 `業外收入` / `業外支出` 群組。
 
-### 7. 經常匯出 CSV 備份
+### 8. 經常匯出 CSV 備份
 
 建議定期匯出項目與交易 CSV，放在 repo 外的備份目錄：
 
@@ -429,22 +505,25 @@ npm run sqlite:export-records -- --help
 
 ## SQLite bridge 安全注意
 
-`sqlite:frontend` 會自動把前端來源加入 bridge 的 CORS allow-list。
+`sqlite:frontend` 會自動把前端來源加入 bridge 的 CORS allow-list，並用 allowlist 靜態 server 只服務 `index.html`、前端 JS/CSS、設定檔與 `data/*.js`。
 
-如果你手動分開啟動 bridge 與前端，必須明確指定 `--cors-origin`：
+SQLite bridge 預設需要登入。正式環境請用 `--login-email-env` / `--login-password-env`，避免密碼出現在子程序 argv。若你手動分開啟動 bridge 與前端，必須明確指定 `--cors-origin`：
 
 ```bash
+export LOGIN_EMAIL=you@example.com
+export LOGIN_PASSWORD='<strong-password>'
+
 npm run sqlite:bridge -- \
   --db "$DB" \
   --user-id local-user \
   --cors-origin http://127.0.0.1:5173 \
-  --login-email you@example.com \
-  --login-password 'strong-password'
+  --login-email-env LOGIN_EMAIL \
+  --login-password-env LOGIN_PASSWORD
 ```
 
 bridge 對 browser request 會檢查 Origin；寫入 request body 必須使用 `Content-Type: application/json`。
 
-CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰有權限操作資料」。如果你用反向代理把前端與 bridge 合成同一個對外 origin，browser 端甚至不需要 CORS；但 bridge API 仍然是公開的 HTTP 入口，是否需要 bridge 內建登入，取決於外層是否已經有足夠的存取控制。
+CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰有權限操作資料」。如果你用反向代理把前端與 bridge 合成同一個對外 origin，browser 端甚至不需要 CORS；但 bridge API 仍然是公開的 HTTP 入口，所以對外服務必須保留 bridge 登入或放在等價的外層存取控制後面。`--allow-unauthenticated` 只給隔離的本機開發使用。
 
 ## 專案檔案
 
@@ -454,6 +533,8 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
 - [sqlite/schema.sql](sqlite/schema.sql): SQLite schema
 - [scripts/import-to-sqlite.py](scripts/import-to-sqlite.py): 統一 SQLite 匯入入口
 - [scripts/run-sqlite-frontend.py](scripts/run-sqlite-frontend.py): 一鍵啟動 SQLite bridge + Web UI
+- [scripts/serve-static-frontend.py](scripts/serve-static-frontend.py): 只服務必要前端檔案的 allowlist 靜態 server
+- [scripts/install_cloudflared_systemd_user.sh](scripts/install_cloudflared_systemd_user.sh): 安裝 user-level systemd services，常駐執行 SQLite 前端與 cloudflared tunnel
 - [scripts/sqlite-http-bridge.py](scripts/sqlite-http-bridge.py): SQLite HTTP bridge
 - [scripts/rebuild-sqlite-snapshots.py](scripts/rebuild-sqlite-snapshots.py): 重建月快照
 - [scripts/verify-sqlite-db.py](scripts/verify-sqlite-db.py): 驗證 SQLite database
@@ -479,8 +560,9 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
 | `scripts/import-to-sqlite.py` | `npm run sqlite:import-csv -- ...` / `npm run sqlite:import-firestore -- ...` | 統一 SQLite 匯入入口，日常使用 `csv` 匯入完整項目與交易 | `npm run sqlite:import-csv -- --db "$DB" --items-csv items.csv --transactions-csv records.csv --replace` |
 | `scripts/rebuild-sqlite-snapshots.py` | `npm run sqlite:rebuild-snapshots -- ...` | 重建 SQLite `monthly_snapshots` | `npm run sqlite:rebuild-snapshots -- --db "$DB" --user-id local-user --apply` |
 | `scripts/verify-sqlite-db.py` | `npm run sqlite:verify-db -- ...` | 驗證 SQLite 筆數、外鍵與月結摘要 | `npm run sqlite:verify-db -- --db "$DB" --user-id local-user` |
-| `scripts/run-sqlite-frontend.py` | `npm run sqlite:frontend -- ...` | 產生前端設定、啟動 bridge、啟動 Web UI | `npm run sqlite:frontend -- --db "$DB" --user-id local-user --login-email you@example.com --login-password 'strong-password'` |
-| `scripts/sqlite-http-bridge.py` | `npm run sqlite:bridge -- ...` | 只啟動 SQLite HTTP bridge | `npm run sqlite:bridge -- --db "$DB" --user-id local-user --cors-origin http://127.0.0.1:5173 --login-email you@example.com --login-password 'strong-password'` |
+| `scripts/run-sqlite-frontend.py` | `npm run sqlite:frontend -- ...` | 產生前端設定、啟動 bridge、啟動 Web UI | `LOGIN_EMAIL=you@example.com LOGIN_PASSWORD='<strong-password>' npm run sqlite:frontend -- --db "$DB" --user-id local-user --login-email-env LOGIN_EMAIL --login-password-env LOGIN_PASSWORD` |
+| `scripts/install_cloudflared_systemd_user.sh` | `bash scripts/install_cloudflared_systemd_user.sh` | 安裝 user-level systemd services，維持 `sqlite:frontend` 與 `cloudflared tunnel run` 常駐 | `PUBLIC_ORIGIN=https://moneybook.example.com LOGIN_EMAIL=you@example.com LOGIN_PASSWORD='<strong-password>' TUNNEL_NAME=<your-tunnel-name> DB_PATH="$DB" bash scripts/install_cloudflared_systemd_user.sh` |
+| `scripts/sqlite-http-bridge.py` | `npm run sqlite:bridge -- ...` | 只啟動 SQLite HTTP bridge | `LOGIN_EMAIL=you@example.com LOGIN_PASSWORD='<strong-password>' npm run sqlite:bridge -- --db "$DB" --user-id local-user --cors-origin http://127.0.0.1:5173 --login-email-env LOGIN_EMAIL --login-password-env LOGIN_PASSWORD` |
 | `scripts/export-items-from-sqlite.py` | `npm run sqlite:export-items -- ...` | 匯出項目 CSV | `npm run sqlite:export-items -- --db "$DB" --output items.csv` |
 | `scripts/export-records-from-sqlite.py` | `npm run sqlite:export-records -- ...` | 匯出交易 CSV | `npm run sqlite:export-records -- --db "$DB" --output records.csv` |
 | `scripts/export-desktop-sidebar-matrix.py` | `npm run sqlite:export-sidebar-matrix -- ...` | 匯出桌面側欄月份矩陣 CSV | `npm run sqlite:export-sidebar-matrix -- --db "$DB" --output sidebar-matrix.csv` |
@@ -501,7 +583,8 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
 | --- | --- | --- |
 | `scripts/generate-app-config.js` | 讀取 `.env` 產生 `app-config.js` | `npm run config:generate` |
 | `scripts/generate-firebase-config.js` | 舊檔名相容 wrapper，產生 `firebase-config.js` | `node scripts/generate-firebase-config.js` |
-| `npm run serve` | 先產生設定，再以 `python3 -m http.server` 開前端 | `npm run serve` |
+| `scripts/serve-static-frontend.py` | 只服務必要前端檔案的 allowlist 靜態 server | `python3 scripts/serve-static-frontend.py --host 127.0.0.1 --port 5173` |
+| `npm run serve` | 先產生設定，再以前端 allowlist 靜態 server 開啟 | `npm run serve` |
 
 ### Firebase / Firestore 相容腳本
 
