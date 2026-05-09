@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import secrets
+import hmac
 import importlib.util
 import json
+import os
+import secrets
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,6 +44,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8765, help="Bind port. Default: 8765")
     parser.add_argument("--login-email", default="", help="Enable UI login with this email.")
     parser.add_argument("--login-password", default="", help="Enable UI login with this password.")
+    parser.add_argument("--login-email-env", default="", help="Read login email from this environment variable.")
+    parser.add_argument("--login-password-env", default="", help="Read login password from this environment variable.")
+    parser.add_argument(
+        "--allow-unauthenticated",
+        action="store_true",
+        help="Allow data API access without bridge login. Use only for isolated local development.",
+    )
+    parser.add_argument(
+        "--trust-forwarded-for",
+        action="store_true",
+        help="Use X-Forwarded-For for login rate limiting. Enable only behind a trusted proxy that overwrites it.",
+    )
     parser.add_argument("--session-ttl-seconds", type=int, default=43200, help="Bridge session token lifetime.")
     parser.add_argument(
         "--cors-origin",
@@ -50,6 +64,18 @@ def parse_args() -> argparse.Namespace:
         help="Allowed browser origin for CORS. Repeat or use comma-separated values.",
     )
     return parser.parse_args()
+
+
+def resolve_secret(value: str, env_name: str, label: str) -> str:
+    direct_value = str(value or "")
+    if direct_value.strip():
+        return direct_value
+    env_key = str(env_name or "").strip()
+    if not env_key:
+        return ""
+    if env_key not in os.environ:
+        raise ValueError(f"{label} 指定的環境變數不存在：{env_key}")
+    return str(os.environ.get(env_key, ""))
 
 
 def normalize_origin(value: str) -> str:
@@ -64,6 +90,10 @@ def parse_allowed_origins(values: list[str]) -> set[str]:
             if origin:
                 origins.add(origin)
     return origins
+
+
+def secrets_equal(left: str, right: str) -> bool:
+    return hmac.compare_digest(str(left or ""), str(right or ""))
 
 
 def settings_payload(row) -> dict:
@@ -704,7 +734,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self.ensure_login_allowed(client_id)
             email = str((payload or {}).get("email", "") or "").strip()
             password = str((payload or {}).get("password", "") or "")
-            if email != self.server.login_email or password != self.server.login_password:
+            if not secrets_equal(email, self.server.login_email) or not secrets_equal(password, self.server.login_password):
                 self.record_failed_login(client_id)
                 time.sleep(FAILED_LOGIN_DELAY_SECONDS)
                 raise PermissionError("Email 或密碼不正確。")
@@ -737,6 +767,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             if self.server.login_email and self.server.login_password:
                 self.require_session()
+            elif not self.server.allow_unauthenticated:
+                raise PermissionError("Bridge 未啟用登入，資料 API 已拒絕存取。")
             user_id = self.server.user_id
             if path == "/settings/state" and method == "GET":
                 return load_settings(conn, user_id)
@@ -946,7 +978,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def get_client_identifier(self) -> str:
         forwarded_for = str(self.headers.get("X-Forwarded-For", "") or "").strip()
-        if forwarded_for:
+        if self.server.trust_forwarded_for and forwarded_for:
             return forwarded_for.split(",")[0].strip()
         return str(self.client_address[0] if self.client_address else "unknown")
 
@@ -994,14 +1026,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
 def main() -> int:
     args = parse_args()
     db_path = Path(args.db).expanduser().resolve()
+    login_email = str(resolve_secret(args.login_email, args.login_email_env, "login email") or "").strip()
+    login_password = resolve_secret(args.login_password, args.login_password_env, "login password")
     if not db_path.exists():
         raise FileNotFoundError(f"找不到資料庫：{db_path}")
+    if bool(login_email) != bool(login_password):
+        raise ValueError("如果要啟用 bridge 登入，必須同時指定 --login-email 與 --login-password。")
+    if not (login_email and login_password) and not args.allow_unauthenticated:
+        raise ValueError("SQLite bridge 預設需要登入。請指定 --login-email-env/--login-password-env，或僅在隔離本機開發時加 --allow-unauthenticated。")
 
     server = ThreadingHTTPServer((args.host, args.port), BridgeHandler)
     server.db_path = db_path
     server.user_id = args.user_id
-    server.login_email = str(args.login_email or "").strip()
-    server.login_password = str(args.login_password or "")
+    server.login_email = login_email
+    server.login_password = login_password
+    server.allow_unauthenticated = bool(args.allow_unauthenticated)
+    server.trust_forwarded_for = bool(args.trust_forwarded_for)
     server.session_ttl_seconds = int(args.session_ttl_seconds or 43200)
     server.sessions = {}
     server.failed_login_attempts = {}
@@ -1009,6 +1049,8 @@ def main() -> int:
     print(f"SQLite bridge listening on http://{args.host}:{args.port} user_id={args.user_id} db={db_path}")
     if server.login_email and server.login_password:
         print(f"SQLite bridge login enabled for {server.login_email}")
+    if server.allow_unauthenticated:
+        print("WARNING: SQLite bridge unauthenticated data API is enabled.")
     if server.allowed_origins:
         print(f"CORS origins: {', '.join(sorted(server.allowed_origins))}")
     try:

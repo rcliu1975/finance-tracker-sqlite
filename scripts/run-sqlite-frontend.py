@@ -23,11 +23,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--serve-host", default="127.0.0.1", help="Frontend HTTP bind host.")
     parser.add_argument("--serve-port", type=int, default=5173, help="Frontend HTTP bind port.")
     parser.add_argument("--open-host", default="127.0.0.1", help="URL host printed for browser access.")
-    parser.add_argument("--public-origin", default="", help="Public browser origin, e.g. https://www.kennylab.online")
+    parser.add_argument("--public-origin", default="", help="Public browser origin, e.g. https://moneybook.example.com")
     parser.add_argument("--public-bridge-path", default="/bridge", help="Public bridge path prefix when using same-origin proxy.")
     parser.add_argument("--login-email", default="", help="Enable external login with this email.")
     parser.add_argument("--login-password", default="", help="Enable external login with this password.")
+    parser.add_argument("--login-email-env", default="", help="Read login email from this environment variable.")
+    parser.add_argument("--login-password-env", default="", help="Read login password from this environment variable.")
+    parser.add_argument(
+        "--allow-unauthenticated",
+        action="store_true",
+        help="Start bridge without login. Use only for isolated local development.",
+    )
     return parser.parse_args()
+
+
+def resolve_secret(value: str, env_name: str, label: str) -> str:
+    if str(value or "").strip():
+        return str(value)
+    env_key = str(env_name or "").strip()
+    if not env_key:
+        return ""
+    if env_key not in os.environ:
+        raise ValueError(f"{label} 指定的環境變數不存在：{env_key}")
+    return str(os.environ.get(env_key, ""))
 
 
 def normalize_public_origin(value: str) -> str:
@@ -121,14 +139,19 @@ def main() -> int:
     args = parse_args()
     repo_root = Path(__file__).resolve().parent.parent
     db_path = Path(args.db).expanduser().resolve()
+    login_email = str(resolve_secret(args.login_email, args.login_email_env, "login email") or "").strip()
+    login_password = resolve_secret(args.login_password, args.login_password_env, "login password")
     if not db_path.exists():
         raise FileNotFoundError(f"找不到 SQLite 資料庫：{db_path}")
-    if bool(str(args.login_email or "").strip()) != bool(str(args.login_password or "").strip()):
+    if bool(login_email) != bool(login_password):
         raise ValueError("如果要啟用 bridge 登入，必須同時指定 --login-email 與 --login-password。")
+    if not (login_email and login_password) and not args.allow_unauthenticated:
+        raise ValueError("SQLite frontend 預設需要 bridge 登入。請指定 --login-email-env/--login-password-env，或僅在隔離本機開發時加 --allow-unauthenticated。")
 
     temp_env_path = write_temp_env(args)
     bridge_process: subprocess.Popen[bytes] | None = None
     serve_process: subprocess.Popen[bytes] | None = None
+    bridge_env = os.environ.copy()
 
     try:
         subprocess.run(
@@ -159,30 +182,32 @@ def main() -> int:
             "--cors-origin",
             frontend_url,
         ]
-        if args.login_email and args.login_password:
-            bridge_command.extend(
-                [
-                    "--login-email",
-                    args.login_email,
-                    "--login-password",
-                    args.login_password,
-                ]
-            )
+        if login_email and login_password:
+            login_email_env = args.login_email_env or "FINANCE_TRACKER_SQLITE_LOGIN_EMAIL"
+            login_password_env = args.login_password_env or "FINANCE_TRACKER_SQLITE_LOGIN_PASSWORD"
+            bridge_env[login_email_env] = login_email
+            bridge_env[login_password_env] = login_password
+            bridge_command.extend(["--login-email-env", login_email_env, "--login-password-env", login_password_env])
+        elif args.allow_unauthenticated:
+            bridge_command.append("--allow-unauthenticated")
 
         bridge_process = subprocess.Popen(
             bridge_command,
             cwd=repo_root,
+            env=bridge_env,
         )
         wait_for_health(f"http://{bridge_health_host(args.bridge_host, args.open_host)}:{args.bridge_port}/health")
 
         serve_process = subprocess.Popen(
             [
                 "python3",
-                "-m",
-                "http.server",
-                str(args.serve_port),
-                "--bind",
+                "scripts/serve-static-frontend.py",
+                "--root",
+                str(repo_root),
+                "--host",
                 args.serve_host,
+                "--port",
+                str(args.serve_port),
             ],
             cwd=repo_root,
         )
@@ -190,8 +215,8 @@ def main() -> int:
         bridge_url = sqlite_api_base_url(args)
         print(f"SQLite bridge: {bridge_url}", flush=True)
         print(f"Frontend: {frontend_url}", flush=True)
-        if args.login_email and args.login_password:
-            print(f"登入帳號: {args.login_email}", flush=True)
+        if login_email and login_password:
+            print(f"登入帳號: {login_email}", flush=True)
         else:
             print("Bridge login: disabled", flush=True)
         if args.serve_host in {"0.0.0.0", "::"} or args.bridge_host in {"0.0.0.0", "::"}:

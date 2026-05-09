@@ -20,7 +20,7 @@
     "sqlite:rebuild-snapshots": "python3 scripts/rebuild-sqlite-snapshots.py",
     "sqlite:verify-db": "python3 scripts/verify-sqlite-db.py",
     "rebuild:monthly-snapshots": "node scripts/rebuild-monthly-snapshots.js",
-    "serve": "npm run config:generate && python3 -m http.server 5173 --bind 0.0.0.0",
+    "serve": "npm run config:generate && python3 scripts/serve-static-frontend.py --host 127.0.0.1 --port 5173",
     "cleanup:orphan-users": "node scripts/cleanup-orphan-users.js",
     "cleanup:orphan-users:apply": "node scripts/cleanup-orphan-users.js --apply",
     "firebase:login": "npx --yes firebase-tools login",
