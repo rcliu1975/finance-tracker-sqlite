@@ -1149,7 +1149,7 @@ function openDesktopTransactionModal() {
   renderDesktopSourceTypeOptions();
   renderDesktopSourceItemOptions();
   renderDesktopDestinationTypeOptions();
-  renderDesktopDestinationItemOptions(state.transactionDestinationType);
+  renderDesktopDestinationItemOptions();
   $("desktopTransactionModal").classList.remove("hidden");
   $("desktopTransactionModal").setAttribute("aria-hidden", "false");
   setTodayDefault();
@@ -3110,7 +3110,7 @@ function renderSourceTypeOptions() {
 }
 
 function renderDesktopSourceTypeOptions() {
-  renderTransactionTypeOptions("desktopSourceTypeSelect", state.transactionSourceType, [
+  state.transactionSourceType = renderTransactionTypeOptions("desktopSourceTypeSelect", state.transactionSourceType, [
     { value: "asset", label: "資產" },
     { value: "liability", label: "負債" },
     { value: "income", label: "收入" },
@@ -3173,7 +3173,7 @@ function renderDestinationTypeOptions() {
 }
 
 function renderDesktopDestinationTypeOptions() {
-  renderTransactionTypeOptions("desktopDestinationTypeSelect", state.transactionDestinationType, [
+  state.transactionDestinationType = renderTransactionTypeOptions("desktopDestinationTypeSelect", state.transactionDestinationType, [
     { value: "asset", label: "資產" },
     { value: "liability", label: "負債" },
     { value: "expense", label: "支出" },
