@@ -679,3 +679,112 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
 | `npm run firebase:emulators` | 產生設定後啟動 Auth / Firestore Emulator |
 | `npm run firebase:deploy` | 產生設定後部署 Firebase Hosting |
 | `npm run firebase:deploy:rules` | 部署 Firestore rules |
+
+---
+
+## 手動設定 User-Level Systemd 自動維護
+
+如果您不想使用 `scripts/install_cloudflared_systemd_user.sh` 腳本，可以依照以下步驟手動完成 user-level systemd 服務的設定與維護。
+
+### 步驟 1：建立環境變數檔案
+為了安全起見，登入帳密與路徑設定不寫入 systemd 服務檔，而是放在獨立的環境變數檔案中。
+
+1. **建立設定目錄並限制權限**：
+   ```bash
+   mkdir -p ~/.config/finance-tracker-sqlite
+   chmod 700 ~/.config/finance-tracker-sqlite
+   ```
+
+2. **建立 `~/.config/finance-tracker-sqlite/systemd.env` 檔案**：
+   ```ini
+   # 您的資料庫檔案路徑 (例如放在首頁目錄下)
+   DB_PATH='/home/roger/finance-tracker.db'
+   
+   # 使用者識別碼
+   USER_ID='local-user'
+   
+   # Bridge 與前端服務監聽的位址
+   BRIDGE_HOST='127.0.0.1'
+   SERVE_HOST='127.0.0.1'
+   
+   # 您的外部公開網址 (例如 Cloudflare Tunnel 對應的網域)
+   PUBLIC_ORIGIN='https://moneybook.example.com'
+   
+   # Bridge 登入帳密設定
+   LOGIN_EMAIL='you@example.com'
+   LOGIN_PASSWORD='your-strong-password'
+   
+   # npm 執行檔路徑 (可使用 `command -v npm` 取得)
+   NPM_BIN='/usr/bin/npm'
+   
+   # 系統 PATH 設定，必須包含 npm 執行檔所在的目錄
+   PATH='/usr/bin:/usr/local/bin:/bin'
+   ```
+
+3. **保護環境變數檔案權限**：
+   ```bash
+   chmod 600 ~/.config/finance-tracker-sqlite/systemd.env
+   ```
+
+### 步驟 2：建立 Systemd User Service 檔案
+1. **建立 systemd user 設定目錄**（如尚未建立）：
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   ```
+
+2. **建立服務設定檔 `~/.config/systemd/user/finance-tracker-sqlite-frontend.service`**：
+   ```ini
+   [Unit]
+   Description=Finance Tracker SQLite frontend
+   After=network-online.target
+   Wants=network-online.target
+
+   [Service]
+   Type=simple
+   WorkingDirectory=/home/roger/WorkSpace/finance-tracker-sqlite
+   EnvironmentFile=%h/.config/finance-tracker-sqlite/systemd.env
+   ExecStart=/usr/bin/env bash -lc 'exec "$NPM_BIN" run sqlite:frontend -- --db "$DB_PATH" --user-id "$USER_ID" --bridge-host "$BRIDGE_HOST" --serve-host "$SERVE_HOST" --public-origin "$PUBLIC_ORIGIN" --login-email-env LOGIN_EMAIL --login-password-env LOGIN_PASSWORD'
+   Restart=always
+   RestartSec=3
+
+   [Install]
+   WantedBy=default.target
+   ```
+   > [!IMPORTANT]
+   > 請確保 `WorkingDirectory` 設定為您專案目錄的實際絕對路徑。
+
+### 步驟 3：啟用並啟動服務
+1. **重新載入 systemd 設定**：
+   ```bash
+   systemctl --user daemon-reload
+   ```
+
+2. **啟用並啟動服務**：
+   ```bash
+   systemctl --user enable --now finance-tracker-sqlite-frontend.service
+   ```
+
+3. **啟用 Linger（確保 SSH 登出後，背景服務仍維持運行）**：
+   ```bash
+   sudo loginctl enable-linger $USER
+   ```
+
+### 步驟 4：常用服務維護指令
+* **查看服務狀態**：
+  ```bash
+  systemctl --user status finance-tracker-sqlite-frontend.service
+  ```
+* **查看即時日誌**：
+  ```bash
+  journalctl --user -u finance-tracker-sqlite-frontend.service -f
+  ```
+* **重啟服務**：
+  ```bash
+  systemctl --user restart finance-tracker-sqlite-frontend.service
+  ```
+* **停止與解除安裝服務**：
+  ```bash
+  systemctl --user disable --now finance-tracker-sqlite-frontend.service
+  rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
+  systemctl --user daemon-reload
+  ```
