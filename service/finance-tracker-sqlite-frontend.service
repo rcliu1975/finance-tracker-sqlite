@@ -1,0 +1,15 @@
+[Unit]
+Description=Finance Tracker SQLite frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/roger/WorkSpace/finance-tracker-sqlite
+EnvironmentFile=/home/roger/.config/finance-tracker-sqlite/systemd.env
+ExecStart=/usr/bin/env bash -lc 'exec "/home/roger/.nvm/versions/node/v24.14.1/bin/npm" run sqlite:frontend -- --db "/home/roger/finance-tracker.db" --user-id "local-user" --bridge-host "127.0.0.1" --serve-host "127.0.0.1" --public-origin "https://moneybook.kennylab.online" --login-email-env LOGIN_EMAIL --login-password-env LOGIN_PASSWORD'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
