@@ -705,7 +705,7 @@ borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/
 ```
 
 ```bash
-DATECODE=2026-07-05
+DATECODE=2026-07-07
 mkdir -p "$HOME/finance-tracker-restore/$DATECODE"
 cd "$HOME/finance-tracker-restore/$DATECODE"
 borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$DATECODE --remote-path /opt/bin/borg --strip-components 2
@@ -714,11 +714,11 @@ borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker
 ### 步驟 3: 放回 SQLite 資料 及 `systemd.env`
 
 ```bash
-DATECODE=2026-07-05
+DATECODE=2026-07-07
 cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker.db" "$HOME/finance-tracker.db"
 mkdir -p "$HOME/.config/finance-tracker-sqlite"
 cp "$HOME/finance-tracker-restore/$DATECODE/systemd.env" "$HOME/.config/finance-tracker-sqlite/systemd.env"
-chmod 600 "$`HOME/.config/finance-tracker-sqlite/systemd.env"
+chmod 600 "$HOME/.config/finance-tracker-sqlite/systemd.env"
 ```
 
 如果 `systemd.env` 內有 `npm` 路徑，請依新電腦上的位置調整，例如 `/home/user/.nvm/versions/node/v22.23.1/bin/npm`
@@ -749,7 +749,7 @@ npm run config:generate
 ### 步驟 6: 建立 frontend systemd service
 
 ```bash
-DATECODE=2026-07-05
+DATECODE=2026-07-07
 mkdir -p "$HOME/.config/systemd/user"
 cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker-sqlite-frontend.service" "$HOME/.config/systemd/user/finance-tracker-sqlite-frontend.service"
 ```
