@@ -599,6 +599,7 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
 - `~/finance-tracker.db`
 - `~/WorkSpace/finance-tracker-sqlite/.env`
 - `~/.config/finance-tracker-sqlite/systemd.env`
+- `~/.config/systemd/user/finance-tracker-sqlite-frontend.service`
 - `匯出的 .csv`
 
 ### Ubuntu 安裝 Borg
@@ -662,7 +663,7 @@ borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracke
 用 prune 清理歷史版本
 
 ```bash
-borg prune -v --list user@qnap-ip:/share/Backup3/BorgRepo_finance-tracker --glob-archives 'finance-tracker-*' --keep-daily=7 --keep-weekly=4 --keep-monthly=12
+borg prune -v --list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --glob-archives 'finance-tracker-*' --keep-daily=7 --keep-weekly=4 --keep-monthly=12
 borg compact ssh://backup-host/./borg/finance-tracker
 ```
 
@@ -768,7 +769,7 @@ systemctl --user enable --now finance-tracker-sqlite-frontend.service
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now finance-tracker-sqlite-frontend.service
+systemctl --user restart finance-tracker-sqlite-frontend.service
 ```
 
 **啟用 Linger（使 systemd user service 在重開機後尚未登入桌面也自動啟動起來）**：
