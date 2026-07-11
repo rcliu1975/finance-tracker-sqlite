@@ -953,3 +953,25 @@ npm run sqlite:verify-db -- --db "$HOME/finance-tracker.db" --user-id local-user
   rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
   systemctl --user daemon-reload
   ```
+
+# 手動啟動 
+
+
+* **先把 systemd.env 裡的變數轉成環境變數 再啟動**：  
+
+  ```bash
+  cd /home/roger/WorkSpace/finance-tracker-sqlite
+  set -a
+  source /home/roger/.config/finance-tracker-sqlite/systemd.env
+  set +a
+
+  "$NPM_BIN" run sqlite:frontend -- \
+    --db "$DB_PATH" \
+    --user-id "$USER_ID" \
+    --bridge-host "$BRIDGE_HOST" \
+    --serve-host "$SERVE_HOST" \
+    --public-origin "$PUBLIC_ORIGIN" \
+    --login-email-env LOGIN_EMAIL \
+    --login-password-env LOGIN_PASSWORD
+  ```
+

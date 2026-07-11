@@ -91,7 +91,7 @@
               <button id="desktopModalCloseBtn" class="desktop-modal-close" type="button" aria-label="關閉">×</button>
             </div>
             <form id="desktopTransactionForm" class="desktop-transaction-form">
-              <label id="desktopSingleAmountField" class="desktop-half-field">
+              <label class="desktop-half-field">
                 日期
                 <input type="date" name="date" required />
               </label>
@@ -109,7 +109,7 @@
                   <select name="destinationId" id="desktopDestinationSelect" required></select>
                 </div>
               </label>
-              <label class="desktop-half-field">
+              <label id="desktopSingleAmountField" class="desktop-half-field">
                 <span id="desktopSingleAmountLabel">金額</span>
                 <input type="number" name="amount" min="1" step="1" required />
               </label>
@@ -286,7 +286,7 @@
               日期
               <input type="date" name="date" required />
             </label>
-            <label id="mobileSingleAmountField" class="tablet-half tablet-one-third">
+            <label class="tablet-half tablet-one-third">
               從項目
               <div class="split-field">
                 <select name="sourceType" id="sourceTypeSelect" required></select>
@@ -300,7 +300,7 @@
                 <select name="destinationId" id="destinationSelect" required></select>
               </div>
             </label>
-            <label class="tablet-half tablet-one-third">
+            <label id="mobileSingleAmountField" class="tablet-half tablet-one-third">
               <span id="mobileSingleAmountLabel">金額</span>
               <input type="number" name="amount" min="1" step="1" required />
             </label>

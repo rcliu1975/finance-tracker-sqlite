@@ -1534,12 +1534,12 @@ function fillTransactionItemControls({
 
   renderSourceTypeOptionsFn();
   $(sourceTypeSelectId).value = state.transactionSourceType;
-  renderSourceItemOptionsFn();
+  renderSourceItemOptionsFn(fromItem);
   $(sourceSelectId).value = transactionItemValue(fromItem);
 
-  renderDestinationTypeOptionsFn();
+  renderDestinationTypeOptionsFn(true);
   $(destinationTypeSelectId).value = state.transactionDestinationType;
-  renderDestinationItemOptionsFn(state.transactionDestinationType);
+  renderDestinationItemOptionsFn(state.transactionDestinationType, toItem);
   $(destinationSelectId).value = transactionItemValue(toItem);
   renderCommonSummaryOptions();
 }
@@ -3120,28 +3120,47 @@ function renderDesktopSourceTypeOptions() {
   ]);
 }
 
-function renderTransactionTypeOptions(selectId, selectedValue, options) {
+function getTransactionTypeLabel(type) {
+  const labels = {
+    asset: "資產",
+    liability: "負債",
+    income: "收入",
+    nonOperatingIncome: "業外收入",
+    expense: "支出",
+    nonOperatingExpense: "業外支出"
+  };
+  return labels[String(type || "")] || String(type || "");
+}
+
+function renderTransactionTypeOptions(selectId, selectedValue, options, { preserveSelectedValue = false } = {}) {
   const select = $(selectId);
-  const previousValue = select.value || selectedValue;
+  // State is set from the record before edit mode renders the controls. Do not
+  // let a stale value left in the form replace that record's type.
+  const previousValue = selectedValue || select.value;
   replaceSelectOptions(
     select,
     options.map((option) => ({ value: option.value, label: option.label }))
   );
 
-  const nextValue = options.some((option) => option.value === previousValue) ? previousValue : options[0].value;
+  const hasPreviousValue = options.some((option) => option.value === previousValue);
+  if (preserveSelectedValue && previousValue && !hasPreviousValue) {
+    select.appendChild(buildOptionNode(previousValue, getTransactionTypeLabel(previousValue)));
+  }
+
+  const nextValue = hasPreviousValue ? previousValue : preserveSelectedValue && previousValue ? previousValue : options[0].value;
   select.value = nextValue;
   return nextValue;
 }
 
-function renderSourceItemOptions() {
-  renderSourceItemOptionsFor("sourceTypeSelect", "sourceSelect");
+function renderSourceItemOptions(selectedItem = null) {
+  renderSourceItemOptionsFor("sourceTypeSelect", "sourceSelect", selectedItem);
 }
 
-function renderDesktopSourceItemOptions() {
-  renderSourceItemOptionsFor("desktopSourceTypeSelect", "desktopSourceSelect");
+function renderDesktopSourceItemOptions(selectedItem = null) {
+  renderSourceItemOptionsFor("desktopSourceTypeSelect", "desktopSourceSelect", selectedItem);
 }
 
-function renderSourceItemOptionsFor(typeSelectId, itemSelectId) {
+function renderSourceItemOptionsFor(typeSelectId, itemSelectId, selectedItem = null) {
   const sourceSelect = $(itemSelectId);
   const previousValue = sourceSelect.value;
   const accountType = $(typeSelectId).value || state.transactionSourceType;
@@ -3157,39 +3176,45 @@ function renderSourceItemOptionsFor(typeSelectId, itemSelectId) {
           .map((account) => ({ value: `account:${account.id}`, label: account.name }));
 
   replaceSelectOptions(sourceSelect, options, { emptyLabel: "沒有可選項目" });
-  if (previousValue && Array.from(sourceSelect.options).some((option) => option.value === previousValue)) {
+  const selectedValue = transactionItemValue(selectedItem);
+  if (selectedValue && !Array.from(sourceSelect.options).some((option) => option.value === selectedValue)) {
+    sourceSelect.appendChild(buildOptionNode(selectedValue, itemText(selectedItem)));
+  }
+  if (selectedValue) {
+    sourceSelect.value = selectedValue;
+  } else if (previousValue && Array.from(sourceSelect.options).some((option) => option.value === previousValue)) {
     sourceSelect.value = previousValue;
   }
   renderCommonSummaryOptions();
 }
 
-function renderDestinationTypeOptions() {
+function renderDestinationTypeOptions(preserveSelectedValue = false) {
   state.transactionDestinationType = renderTransactionTypeOptions("destinationTypeSelect", state.transactionDestinationType, [
     { value: "asset", label: "資產" },
     { value: "liability", label: "負債" },
     { value: "expense", label: "支出" },
     { value: "nonOperatingExpense", label: "業外支出" }
-  ]);
+  ], { preserveSelectedValue });
 }
 
-function renderDesktopDestinationTypeOptions() {
+function renderDesktopDestinationTypeOptions(preserveSelectedValue = false) {
   state.transactionDestinationType = renderTransactionTypeOptions("desktopDestinationTypeSelect", state.transactionDestinationType, [
     { value: "asset", label: "資產" },
     { value: "liability", label: "負債" },
     { value: "expense", label: "支出" },
     { value: "nonOperatingExpense", label: "業外支出" }
-  ]);
+  ], { preserveSelectedValue });
 }
 
-function renderDestinationItemOptions(selectedType) {
-  renderDestinationItemOptionsFor("destinationTypeSelect", "destinationSelect", selectedType);
+function renderDestinationItemOptions(selectedType, selectedItem = null) {
+  renderDestinationItemOptionsFor("destinationTypeSelect", "destinationSelect", selectedType, selectedItem);
 }
 
-function renderDesktopDestinationItemOptions(selectedType) {
-  renderDestinationItemOptionsFor("desktopDestinationTypeSelect", "desktopDestinationSelect", selectedType);
+function renderDesktopDestinationItemOptions(selectedType, selectedItem = null) {
+  renderDestinationItemOptionsFor("desktopDestinationTypeSelect", "desktopDestinationSelect", selectedType, selectedItem);
 }
 
-function renderDestinationItemOptionsFor(typeSelectId, itemSelectId, selectedType) {
+function renderDestinationItemOptionsFor(typeSelectId, itemSelectId, selectedType, selectedItem = null) {
   const destinationSelect = $(itemSelectId);
   const previousValue = destinationSelect.value;
   const destinationType = selectedType || $(typeSelectId).value || state.transactionDestinationType;
@@ -3205,7 +3230,13 @@ function renderDestinationItemOptionsFor(typeSelectId, itemSelectId, selectedTyp
           .map((account) => ({ value: `account:${account.id}`, label: account.name }));
 
   replaceSelectOptions(destinationSelect, options, { emptyLabel: "沒有可選項目" });
-  if (previousValue && Array.from(destinationSelect.options).some((option) => option.value === previousValue)) {
+  const selectedValue = transactionItemValue(selectedItem);
+  if (selectedValue && !Array.from(destinationSelect.options).some((option) => option.value === selectedValue)) {
+    destinationSelect.appendChild(buildOptionNode(selectedValue, itemText(selectedItem)));
+  }
+  if (selectedValue) {
+    destinationSelect.value = selectedValue;
+  } else if (previousValue && Array.from(destinationSelect.options).some((option) => option.value === previousValue)) {
     destinationSelect.value = previousValue;
   }
   renderCommonSummaryOptions();
