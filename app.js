@@ -874,6 +874,16 @@ function bindEvents() {
   });
   $("transactionTableBody").addEventListener("click", (event) => {
     if (state.transactionEditMode) {
+      const summaryButton = event.target.closest(".inline-summary-menu [data-summary]");
+      if (summaryButton && state.desktopMode) {
+        const field = summaryButton.closest(".inline-summary-field");
+        const input = field?.querySelector('input[name="note"]');
+        if (input) {
+          input.value = summaryButton.dataset.summary || "";
+          input.focus();
+          hideSummaryMenus();
+        }
+      }
       return;
     }
 
@@ -923,11 +933,19 @@ function bindEvents() {
     if (target.name === "fromType" || target.name === "toType") {
       updateDesktopEditableItemOptions(row, target.name === "fromType" ? "from" : "to");
       updateDesktopEditableTypePreview(row);
+      renderInlineSummaryMenu(row);
       return;
     }
 
     if (target.name === "fromId" || target.name === "toId") {
       updateDesktopEditableTypePreview(row);
+      renderInlineSummaryMenu(row);
+    }
+  });
+  $("transactionTableBody").addEventListener("focusin", (event) => {
+    const input = event.target.closest('.inline-summary-field input[name="note"]');
+    if (input && state.desktopMode && state.transactionEditMode) {
+      showInlineSummaryMenu(input);
     }
   });
   $("desktopYearSelect").addEventListener("change", handleDesktopDateChange);
@@ -2895,14 +2913,6 @@ function replaceSelectOptions(select, options, { emptyLabel = "" } = {}) {
 }
 
 function renderCommonSummaryOptions() {
-  const datalist = $("commonSummaryList");
-  datalist.replaceChildren(
-    ...getCommonSummaries(getActiveSummaryScopeKey()).map((summary) => {
-      const option = document.createElement("option");
-      option.value = String(summary || "");
-      return option;
-    })
-  );
   renderSummaryMenu("desktopSummaryInput", "desktopSummaryMenu", "desktop");
   renderSummaryMenu("mobileSummaryInput", "mobileSummaryMenu", "mobile");
   updateSaveSummaryButtons();
@@ -2936,8 +2946,7 @@ async function loadCommonSummaryState() {
 
 function getCommonSummaries(scopeKey) {
   const scoped = state.commonSummaries[scopeKey] || [];
-  const fallback = scopeKey === "global" ? [] : state.commonSummaries.global || [];
-  return (scoped.length ? scoped : fallback).filter(Boolean).slice(0, COMMON_SUMMARY_LIMIT);
+  return scoped.filter(Boolean).slice(0, COMMON_SUMMARY_LIMIT);
 }
 
 async function saveCommonSummaries(scopeKey, summaries) {
@@ -2985,8 +2994,9 @@ function hideSummaryMenus() {
 function renderSummaryMenu(inputId, menuId, formKind) {
   const menu = $(menuId);
   const scopeKey = getSummaryScopeKey(formKind);
+  const summaries = getCommonSummaries(scopeKey);
   const fragment = document.createDocumentFragment();
-  getCommonSummaries(scopeKey).forEach((summary) => {
+  summaries.forEach((summary) => {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.summary = String(summary || "");
@@ -2994,6 +3004,9 @@ function renderSummaryMenu(inputId, menuId, formKind) {
     fragment.appendChild(button);
   });
   menu.replaceChildren(fragment);
+  if (!summaries.length) {
+    menu.classList.add("hidden");
+  }
   menu.querySelectorAll("[data-summary]").forEach((button) => {
     button.addEventListener("click", () => {
       $(inputId).value = button.dataset.summary || "";
@@ -3695,6 +3708,9 @@ function renderTransactions() {
   if (state.transactionTableBodyRenderKey !== bodyRenderKey) {
     if (state.transactionEditMode) {
       $("transactionTableBody").innerHTML = renderEditableTransactions(transactions);
+      if (state.desktopMode) {
+        renderInlineSummaryMenus();
+      }
     } else {
       renderReadonlyTransactionRows(transactions);
     }
@@ -3881,7 +3897,7 @@ function renderEditableTransactions(transactions) {
           <td>${transactionTypeText(transaction)}</td>
           <td>${escapeHtml(itemText(getTransactionToItem(transaction)))}</td>
           <td><input name="toAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "to"))}" /></td>
-          <td><input name="note" list="commonSummaryList" value="${escapeAttr(transaction.note || "")}" /></td>
+          <td><input name="note" value="${escapeAttr(transaction.note || "")}" /></td>
         </tr>`;
       })
       .join("") ||
@@ -3906,13 +3922,65 @@ function renderDesktopEditableTransactions(transactions) {
           <td class="desktop-type-preview">${transactionTypeText(transaction)}</td>
           <td>${renderDesktopItemEditor("to", toItem)}</td>
           <td><input name="toAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "to"))}" /></td>
-          <td><input name="note" list="commonSummaryList" value="${escapeAttr(transaction.note || "")}" /></td>
+          <td>${renderInlineSummaryEditor(transaction)}</td>
           ${showBalance ? `<td>${escapeHtml(formatDesktopBalanceValue(getDesktopBalanceScope(), balanceMap[transaction.id] ?? 0))}</td>` : ""}
         </tr>`;
       })
       .join("") ||
     `<tr><td colspan="${emptyColspan}">目前還沒有記錄資料。</td></tr>`
   );
+}
+
+function renderInlineSummaryEditor(transaction) {
+  return `<div class="summary-field inline-summary-field">
+    <input name="note" value="${escapeAttr(transaction.note || "")}" />
+    <div class="summary-menu inline-summary-menu hidden"></div>
+  </div>`;
+}
+
+function getInlineSummaryScopeKey(row) {
+  return getSummaryScopeKeyFromValues(
+    row.querySelector('[name="toId"]')?.value,
+    row.querySelector('[name="fromId"]')?.value
+  );
+}
+
+function renderInlineSummaryMenu(row) {
+  const menu = row.querySelector(".inline-summary-menu");
+  if (!menu) {
+    return;
+  }
+
+  const summaries = getCommonSummaries(getInlineSummaryScopeKey(row));
+  const fragment = document.createDocumentFragment();
+  summaries.forEach((summary) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.summary = String(summary || "");
+    button.textContent = String(summary || "");
+    fragment.appendChild(button);
+  });
+  menu.replaceChildren(fragment);
+  if (!summaries.length) {
+    menu.classList.add("hidden");
+  }
+}
+
+function renderInlineSummaryMenus() {
+  document.querySelectorAll(".desktop-editable-row").forEach(renderInlineSummaryMenu);
+}
+
+function showInlineSummaryMenu(input) {
+  const row = input.closest(".desktop-editable-row");
+  const menu = row?.querySelector(".inline-summary-menu");
+  if (!row || !menu) {
+    return;
+  }
+
+  renderInlineSummaryMenu(row);
+  if (getCommonSummaries(getInlineSummaryScopeKey(row)).length) {
+    menu.classList.remove("hidden");
+  }
 }
 
 function renderDesktopItemEditor(prefix, item) {
