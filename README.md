@@ -930,42 +930,43 @@ npm run sqlite:verify-db -- --db "$HOME/finance-tracker.db" --user-id local-user
 
 * **查看服務狀態**：
 
-  ```bash
-  systemctl --user status finance-tracker-sqlite-frontend.service
-  ```
+```bash
+systemctl --user status finance-tracker-sqlite-frontend.service
+```
   
 * **查看即時日誌**：
 
-  ```bash
-  journalctl --user -u finance-tracker-sqlite-frontend.service -f
-  ```
+```bash
+journalctl --user -u finance-tracker-sqlite-frontend.service -f
+```
   
 * **重啟服務**：
 
-  ```bash
-  systemctl --user restart finance-tracker-sqlite-frontend.service
-  ```
+```bash
+systemctl --user restart finance-tracker-sqlite-frontend.service
+```
 
 * **停止與解除安裝服務**：
 
-  ```bash
-  systemctl --user disable --now finance-tracker-sqlite-frontend.service
-  rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
-  systemctl --user daemon-reload
-  ```
+```bash
+systemctl --user disable --now finance-tracker-sqlite-frontend.service
+rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
+systemctl --user daemon-reload
+```
 
 # 手動啟動 
 
 
-* **先把 systemd.env 裡的變數轉成環境變數 再啟動**：  
+* **先把 systemd.env 裡的變數轉成環境變數 再啟動 sqlite:frontend**：
 
-  ```bash
-  cd /home/roger/WorkSpace/finance-tracker-sqlite
-  set -a
-  source /home/roger/.config/finance-tracker-sqlite/systemd.env
-  set +a
+```bash
+cd /home/roger/WorkSpace/finance-tracker-sqlite
+set -a
+source /home/roger/.config/finance-tracker-sqlite/systemd.env
+PUBLIC_ORIGIN='http://192.168.0.138:5000'
+set +a
 
-  "$NPM_BIN" run sqlite:frontend -- \
+"$NPM_BIN" run sqlite:frontend -- \
     --db "$DB_PATH" \
     --user-id "$USER_ID" \
     --bridge-host "$BRIDGE_HOST" \
@@ -973,5 +974,13 @@ npm run sqlite:verify-db -- --db "$HOME/finance-tracker.db" --user-id local-user
     --public-origin "$PUBLIC_ORIGIN" \
     --login-email-env LOGIN_EMAIL \
     --login-password-env LOGIN_PASSWORD
-  ```
+```
 
+* **在另一個視窗啟動 reverse proxy**：
+
+```bash
+cd /home/roger/WorkSpace/finance-tracker-sqlite
+python3 scripts/reverse_proxy.py
+```
+
+* **然後用 Chrome 連 `http://192.168.0.138:5000`**。
