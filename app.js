@@ -3897,7 +3897,7 @@ function renderEditableTransactions(transactions) {
           <td>${transactionTypeText(transaction)}</td>
           <td>${escapeHtml(itemText(getTransactionToItem(transaction)))}</td>
           <td><input name="toAmount" type="number" min="1" step="1" value="${escapeAttr(getTransactionSideAmount(transaction, "to"))}" /></td>
-          <td><input name="note" value="${escapeAttr(transaction.note || "")}" /></td>
+          <td><input name="note" autocomplete="off" value="${escapeAttr(transaction.note || "")}" /></td>
         </tr>`;
       })
       .join("") ||
@@ -3933,7 +3933,7 @@ function renderDesktopEditableTransactions(transactions) {
 
 function renderInlineSummaryEditor(transaction) {
   return `<div class="summary-field inline-summary-field">
-    <input name="note" value="${escapeAttr(transaction.note || "")}" />
+    <input name="note" autocomplete="off" value="${escapeAttr(transaction.note || "")}" />
     <div class="summary-menu inline-summary-menu hidden"></div>
   </div>`;
 }
