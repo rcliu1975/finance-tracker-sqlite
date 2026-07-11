@@ -2,6 +2,7 @@ import { applySessionBootstrapState, initializeAppSession } from "./data/app-ses
 
 let runtimeSessionObserved = false;
 const COMMON_SUMMARY_STORAGE_KEY = "financeCommonSummaries:v2";
+const COMMON_SUMMARY_LIMIT = 20;
 
 window.addEventListener("error", (event) => {
   const message = event.error?.message || event.message || "未知錯誤";
@@ -2936,11 +2937,11 @@ async function loadCommonSummaryState() {
 function getCommonSummaries(scopeKey) {
   const scoped = state.commonSummaries[scopeKey] || [];
   const fallback = scopeKey === "global" ? [] : state.commonSummaries.global || [];
-  return (scoped.length ? scoped : fallback).filter(Boolean).slice(0, 6);
+  return (scoped.length ? scoped : fallback).filter(Boolean).slice(0, COMMON_SUMMARY_LIMIT);
 }
 
 async function saveCommonSummaries(scopeKey, summaries) {
-  state.commonSummaries[scopeKey] = [...new Set(summaries.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 6);
+  state.commonSummaries[scopeKey] = [...new Set(summaries.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, COMMON_SUMMARY_LIMIT);
   if (typeof dataBackend?.replaceCommonSummariesState === "function") {
     await dataBackend.replaceCommonSummariesState(state.commonSummaries);
   } else {
@@ -3022,7 +3023,7 @@ function renderCommonSummaryFields() {
   const scopeLabel = getSummaryScopeLabel(scopeKey);
   $("commonSummaryTitle").textContent = `編輯常用摘要 - ${scopeLabel}`;
   const fragment = document.createDocumentFragment();
-  Array.from({ length: 6 }, (_, index) => {
+  Array.from({ length: COMMON_SUMMARY_LIMIT }, (_, index) => {
     const label = document.createElement("label");
     label.append(`${scopeLabel} 常用摘要 ${index + 1}`);
     const input = document.createElement("input");

@@ -370,7 +370,7 @@ def replace_common_summaries(conn, user_id: str, payload: dict):
             text = str(summary or "").strip()
             if text and text not in unique:
                 unique.append(text)
-        for index, summary in enumerate(unique[:6]):
+        for index, summary in enumerate(unique[:20]):
             rows.append((user_id, str(scope_key or ""), index, summary))
     if rows:
         conn.executemany(

@@ -53,7 +53,7 @@ def load_common_summaries(conn, user_id: str) -> dict[str, str]:
     for row in rows:
         scope_key = str(row["scope_key"] or "")
         grouped.setdefault(scope_key, []).append(str(row["summary"] or ""))
-    return {key: "；".join(values[:6]) for key, values in grouped.items()}
+    return {key: "；".join(values[:20]) for key, values in grouped.items()}
 
 
 def export_rows(conn, user_id: str) -> list[list[str]]:

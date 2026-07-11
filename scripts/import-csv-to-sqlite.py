@@ -97,7 +97,7 @@ def import_items(connection: sqlite3.Connection, rows: list[dict[str, str]], use
                 normalized = piece.strip()
                 if normalized and normalized not in summaries:
                     summaries.append(normalized)
-            for summary_index, summary in enumerate(summaries[:6]):
+            for summary_index, summary in enumerate(summaries[:20]):
                 common_summary_rows.append((user_id, f"category:{item_id}", summary_index, summary))
 
     if common_summary_rows:

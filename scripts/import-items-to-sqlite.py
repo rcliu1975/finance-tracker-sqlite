@@ -84,7 +84,7 @@ def parse_summaries(text: str) -> list[str]:
         normalized = piece.strip()
         if normalized and normalized not in summaries:
             summaries.append(normalized)
-    return summaries[:6]
+    return summaries[:20]
 
 
 def next_order(conn, user_id: str, table: str, item_type: str) -> int:
