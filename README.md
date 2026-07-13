@@ -963,7 +963,7 @@ systemctl --user daemon-reload
 cd /home/roger/WorkSpace/finance-tracker-sqlite
 set -a
 source /home/roger/.config/finance-tracker-sqlite/systemd.env
-PUBLIC_ORIGIN='http://192.168.0.138:5000'
+PUBLIC_ORIGIN='http://192.168.0.48:5000'
 set +a
 
 "$NPM_BIN" run sqlite:frontend -- \
@@ -975,6 +975,8 @@ set +a
     --login-email-env LOGIN_EMAIL \
     --login-password-env LOGIN_PASSWORD
 ```
+
+PS:  要先用 `ip a` 來查尋 ip。
 
 * **在另一個視窗啟動 reverse proxy**：
 
