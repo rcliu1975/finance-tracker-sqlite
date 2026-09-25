@@ -2,7 +2,7 @@
 
 # 利用 Borg 備份及還原流程
 
-# 備份至 Borg archive 流程
+## 備份至 Borg archive 流程
 
  `finance-tracker-sqlite` 可以從 GitHub `git clone` 取得，Borg 只需保存「資料」與「必要的本機設定」。
 
@@ -79,19 +79,16 @@ borg prune 會保留：最近 7 天的每日備份, 最近 4 週的每週備份,
 
 ---
 
-# 由 Borg archive 還原到新電腦的流程
-
-先安裝 `git`
-
-```bash
-sudo apt install git
-```
+## 由 Borg archive 還原到新電腦的流程
 
 ### 步驟 1: 在新電腦 clone repo
 
 複製 ssh 金鑰 `id_ed25519`, `id_ed25519.pub` 到 `~/.ssh`
 
 ```bash
+#安裝 git
+sudo apt install git
+
 mkdir -p "$HOME/WorkSpace"
 cd "$HOME/WorkSpace"
 git clone git@github.com:rcliu1975/finance-tracker-sqlite
