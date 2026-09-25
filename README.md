@@ -1,5 +1,406 @@
 # 家庭理財記帳 SQLite 版
 
+# 利用 Borg 備份及還原流程
+
+# 備份至 Borg archive 流程
+
+ `finance-tracker-sqlite` 可以從 GitHub `git clone` 取得，Borg 只需保存「資料」與「必要的本機設定」。
+
+### 需要放進 Borg 的內容
+
+- `~/finance-tracker.db`
+- `~/WorkSpace/finance-tracker-sqlite/.env`
+- `~/.config/finance-tracker-sqlite/systemd.env`
+- `~/.config/systemd/user/finance-tracker-sqlite-frontend.service`
+- `匯出的 .csv`
+
+### Ubuntu 安裝 Borg
+
+```bash
+sudo apt update
+sudo apt install borgbackup
+```
+
+## 步驟 1: 初始化 repo
+
+```bash
+borg init --encryption=none rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
+```
+
+### 步驟 2: 匯出可讀格式
+
+先把資料匯出成 CSV / JSON，讓未來即使 SQLite schema 有變，也能重新建立資料。`~/finance-tracker-backups/latest/` 只保留最新一份。
+
+```bash
+rm -rf "$HOME/finance-tracker-backups/latest"
+mkdir -p "$HOME/finance-tracker-backups/latest"
+
+cd "$HOME/WorkSpace/finance-tracker-sqlite"
+npm run sqlite:export-items -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/items.csv"
+npm run sqlite:export-records -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/records.csv"
+npm run sqlite:export-json -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/export.json"
+```
+
+### 步驟 3: 暫停會寫入 DB 的服務
+
+```bash
+systemctl --user stop finance-tracker-sqlite-frontend.service 2>/dev/null || true
+```
+
+### 步驟 4: 複製 `finance-tracker.db` ，`finance-tracker-sqlite-frontend.service` ，`systemd.env` 和  `.env`
+
+```bash
+cd "$HOME"
+cp finance-tracker.db finance-tracker-backups/latest
+cp .config/systemd/user/finance-tracker-sqlite-frontend.service finance-tracker-backups/latest
+cp .config/finance-tracker-sqlite/systemd.env finance-tracker-backups/latest
+cp ~/WorkSpace/finance-tracker-sqlite/.env finance-tracker-backups/latest
+```
+
+### 步驟 5: 恢復服務
+
+```bash
+systemctl --user start finance-tracker-sqlite-frontend.service
+```
+
+### 步驟 6: 寫入 Borg repository
+
+```bash
+cd "$HOME"
+borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$(date +%F) finance-tracker-backups/latest --remote-path /opt/bin/borg
+```
+
+### 清理舊 archive
+
+用 prune 清理歷史版本
+
+```bash
+borg prune -v --list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --glob-archives 'finance-tracker-*' --keep-daily=7 --keep-weekly=4 --keep-monthly=12
+borg compact ssh://backup-host/./borg/finance-tracker
+```
+
+borg prune 會保留：最近 7 天的每日備份, 最近 4 週的每週備份, 最近 12 個月的每月備份
+
+# 由 Borg archive 還原到新電腦的流程
+
+先安裝 `git`
+
+```bash
+sudo apt install git
+```
+
+### 步驟 1: 在新電腦 clone repo
+
+複製 ssh 金鑰 `id_ed25519`, `id_ed25519.pub` 到 `~/.ssh`
+
+```bash
+mkdir -p "$HOME/WorkSpace"
+cd "$HOME/WorkSpace"
+git clone git@github.com:rcliu1975/finance-tracker-sqlite
+cd finance-tracker-sqlite
+npm install
+```
+
+### 步驟 2: 從 Borg 還原 archive
+
+Ubuntu 安裝 Borg
+
+```bash
+sudo apt update
+sudo apt install borgbackup
+```
+
+列出 archive
+
+```bash
+borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
+```
+
+```bash
+DATECODE=2026-07-07
+mkdir -p "$HOME/finance-tracker-restore/$DATECODE"
+cd "$HOME/finance-tracker-restore/$DATECODE"
+borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$DATECODE --remote-path /opt/bin/borg --strip-components 2
+```
+
+### 步驟 3: 放回 SQLite 資料 及 `systemd.env`
+
+```bash
+DATECODE=2026-07-07
+cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker.db" "$HOME/finance-tracker.db"
+mkdir -p "$HOME/.config/finance-tracker-sqlite"
+cp "$HOME/finance-tracker-restore/$DATECODE/systemd.env" "$HOME/.config/finance-tracker-sqlite/systemd.env"
+chmod 600 "$HOME/.config/finance-tracker-sqlite/systemd.env"
+```
+
+如果 `systemd.env` 內有 `npm` 路徑，請依新電腦上的位置調整，例如 `/home/user/.nvm/versions/node/v22.23.1/bin/npm`
+
+```bash
+which npm
+```
+
+檢查 system.env 及根據 server name 和 npm path 修正 PUBLIC_ORIGIN, NPM_BIN 和 NPM_BIN
+
+### 步驟 4: 放回 `.env`
+
+```bash
+cp "$HOME/finance-tracker-restore/$DATECODE/.env" "$HOME/WorkSpace/finance-tracker-sqlite/.env"
+```
+
+檢查 .env 及根據 server name 修正 APP_SQLITE_API_BASE_URL
+
+### 步驟 5: 重新產生 app-config.js
+
+用 `.env` 產生 `app-config.js`。
+
+```bash
+cd "$HOME/WorkSpace/finance-tracker-sqlite"
+npm run config:generate
+```
+
+### 步驟 6: 建立 frontend systemd service
+
+```bash
+DATECODE=2026-07-07
+mkdir -p "$HOME/.config/systemd/user"
+cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker-sqlite-frontend.service" "$HOME/.config/systemd/user/finance-tracker-sqlite-frontend.service"
+```
+
+   > [!IMPORTANT]
+   > 請確保 `WorkingDirectory` 設定為您專案目錄的實際絕對路徑。
+
+
+**新建立的 service 要先 enable**
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now finance-tracker-sqlite-frontend.service
+```
+
+**若是修改已 enable  的 service 只需 restart**
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart finance-tracker-sqlite-frontend.service
+```
+
+**啟用 Linger（使 systemd user service 在重開機後尚未登入桌面也自動啟動起來）**：
+
+   ```bash
+   sudo loginctl enable-linger $USER
+   ```
+
+驗證服務能不能連上：
+
+```bash
+curl -I http://127.0.0.1:5173
+curl -I http://127.0.0.1:8765
+```
+
+
+### 步驟 7: 重新安裝 cloudflared
+
+在新電腦上重新建立 `cloudflared`。
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create <your-tunnel-name>
+mkdir -p "$HOME/.cloudflared"
+cat > "$HOME/.cloudflared/config.yml" <<'EOF'
+tunnel: <your-tunnel-id>
+credentials-file: ~/.cloudflared/<your-tunnel-id>.json
+
+ingress:
+  - hostname: moneybook.example.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404
+EOF
+```
+
+如果你需要 DNS 綁定，再執行：
+
+```bash
+cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
+cloudflared tunnel route dns <your-tunnel-name> moneybook.example.com
+```
+
+建立 user-level systemd 配置目錄：
+
+```bash
+mkdir -p ~/.config/systemd/user
+```
+
+建立服務設定檔 `~/.config/systemd/user/cloudflared-tunnel.service`：
+
+```ini
+[Unit]
+Description=Cloudflare Tunnel - user mode
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/cloudflared tunnel --config %h/.cloudflared/config.yml run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+  
+   *(註：%h 在 systemd 中會自動替換為使用者的 Home 目錄)*
+
+修改後驗證：
+
+```bash
+cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
+```
+
+若 service 正在運行，再重啟：
+
+```bash
+systemctl --user restart cloudflared-tunnel.service
+```
+
+### 步驟 8: 重新安裝 Caddy
+
+在 Ubuntu 24.04 LTS 安裝 Caddy，建議使用官方 APT repository。
+
+```bash
+sudo apt update
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+```
+
+確認安裝：
+
+```bash
+caddy version
+sudo systemctl status caddy
+```
+
+建立 `/etc/caddy/Caddyfile`：
+
+```bash
+sudo mkdir -p /etc/caddy
+sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
+:8000 {
+  handle_path /bridge/* {
+    reverse_proxy 127.0.0.1:8765
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:5173
+  }
+}
+EOF
+```
+
+重啟 Caddy：
+
+```bash
+sudo systemctl enable caddy
+sudo systemctl restart caddy
+```
+
+### 步驟 9: 驗證服務
+
+Ubuntu 安裝 rg
+
+```bash
+sudo apt update
+sudo apt install ripgrep
+```
+
+確認本機有在聽的 port：
+
+```bash
+ss -ltnp | rg ':5173|:8765|:8000'
+```
+
+確認 Caddy 與前端可以正常回應：
+
+```bash
+curl -I http://127.0.0.1:5173
+curl -I http://127.0.0.1:8765
+curl -I http://127.0.0.1:8000
+```
+
+最後在專案目錄檢查資料庫：
+
+```bash
+cd "$HOME/WorkSpace/finance-tracker-sqlite"
+npm run sqlite:verify-db -- --db "$HOME/finance-tracker.db" --user-id local-user
+```
+
+# 常用服務維護指令
+
+* **查看服務狀態**：
+
+```bash
+systemctl --user status finance-tracker-sqlite-frontend.service
+```
+  
+* **查看即時日誌**：
+
+```bash
+journalctl --user -u finance-tracker-sqlite-frontend.service -f
+```
+  
+* **重啟服務**：
+
+```bash
+systemctl --user restart finance-tracker-sqlite-frontend.service
+```
+
+* **停止與解除安裝服務**：
+
+```bash
+systemctl --user disable --now finance-tracker-sqlite-frontend.service
+rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
+systemctl --user daemon-reload
+```
+
+# 手動啟動 
+
+
+* **先把 systemd.env 裡的變數轉成環境變數 再啟動 sqlite:frontend**：
+
+```bash
+cd /home/roger/WorkSpace/finance-tracker-sqlite
+set -a
+source /home/roger/.config/finance-tracker-sqlite/systemd.env
+PUBLIC_ORIGIN='http://192.168.0.48:5000'
+set +a
+
+"$NPM_BIN" run sqlite:frontend -- \
+    --db "$DB_PATH" \
+    --user-id "$USER_ID" \
+    --bridge-host "$BRIDGE_HOST" \
+    --serve-host "$SERVE_HOST" \
+    --public-origin "$PUBLIC_ORIGIN" \
+    --login-email-env LOGIN_EMAIL \
+    --login-password-env LOGIN_PASSWORD
+```
+
+PS:  要先用 `ip a` 來查尋 ip。
+
+* **在另一個視窗啟動 reverse proxy**：
+
+```bash
+cd /home/roger/WorkSpace/finance-tracker-sqlite
+python3 scripts/reverse_proxy.py
+```
+
+* **然後用 Chrome 連 `http://192.168.0.138:5000`**。
+
+---
+
 這個 repo 是從 `finance-tracking` 拆出的 SQLite 主線版本。現在建議把資料放在本機 SQLite database，透過 CLI 匯入 / 匯出，並用 SQLite bridge 啟動 Web UI。
 
 Firebase / Firestore 只保留相容與遷移路徑，相關說明見 [FIRESTORE_COMPAT.md](FIRESTORE_COMPAT.md)。
@@ -590,399 +991,4 @@ CORS 只處理「哪個瀏覽器 origin 可以呼叫 bridge」，不處理「誰
    WantedBy=default.target
    ```
    
-# 備份至 Borg archive 流程
 
- `finance-tracker-sqlite` 可以從 GitHub `git clone` 取得，Borg 只需保存「資料」與「必要的本機設定」。
-
-### 需要放進 Borg 的內容
-
-- `~/finance-tracker.db`
-- `~/WorkSpace/finance-tracker-sqlite/.env`
-- `~/.config/finance-tracker-sqlite/systemd.env`
-- `~/.config/systemd/user/finance-tracker-sqlite-frontend.service`
-- `匯出的 .csv`
-
-### Ubuntu 安裝 Borg
-
-```bash
-sudo apt update
-sudo apt install borgbackup
-```
-
-## 步驟 1: 初始化 repo
-
-```bash
-borg init --encryption=none rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
-```
-
-### 步驟 2: 匯出可讀格式
-
-先把資料匯出成 CSV / JSON，讓未來即使 SQLite schema 有變，也能重新建立資料。`~/finance-tracker-backups/latest/` 只保留最新一份。
-
-```bash
-rm -rf "$HOME/finance-tracker-backups/latest"
-mkdir -p "$HOME/finance-tracker-backups/latest"
-
-cd "$HOME/WorkSpace/finance-tracker-sqlite"
-npm run sqlite:export-items -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/items.csv"
-npm run sqlite:export-records -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/records.csv"
-npm run sqlite:export-json -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/export.json"
-```
-
-### 步驟 3: 暫停會寫入 DB 的服務
-
-```bash
-systemctl --user stop finance-tracker-sqlite-frontend.service 2>/dev/null || true
-```
-
-### 步驟 4: 複製 `finance-tracker.db` ，`finance-tracker-sqlite-frontend.service` ，`systemd.env` 和  `.env`
-
-```bash
-cd "$HOME"
-cp finance-tracker.db finance-tracker-backups/latest
-cp .config/systemd/user/finance-tracker-sqlite-frontend.service finance-tracker-backups/latest
-cp .config/finance-tracker-sqlite/systemd.env finance-tracker-backups/latest
-cp ~/WorkSpace/finance-tracker-sqlite/.env finance-tracker-backups/latest
-```
-
-### 步驟 5: 恢復服務
-
-```bash
-systemctl --user start finance-tracker-sqlite-frontend.service
-```
-
-### 步驟 6: 寫入 Borg repository
-
-```bash
-cd "$HOME"
-borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$(date +%F) finance-tracker-backups/latest --remote-path /opt/bin/borg
-```
-
-### 清理舊 archive
-
-用 prune 清理歷史版本
-
-```bash
-borg prune -v --list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --glob-archives 'finance-tracker-*' --keep-daily=7 --keep-weekly=4 --keep-monthly=12
-borg compact ssh://backup-host/./borg/finance-tracker
-```
-
-borg prune 會保留：最近 7 天的每日備份, 最近 4 週的每週備份, 最近 12 個月的每月備份
-
-# 由 Borg archive 還原到新電腦的流程
-
-先安裝 `git`
-
-```bash
-sudo apt install git
-```
-
-### 步驟 1: 在新電腦 clone repo
-
-複製 ssh 金鑰 `id_ed25519`, `id_ed25519.pub` 到 `~/.ssh`
-
-```bash
-mkdir -p "$HOME/WorkSpace"
-cd "$HOME/WorkSpace"
-git clone git@github.com:rcliu1975/finance-tracker-sqlite
-cd finance-tracker-sqlite
-npm install
-```
-
-### 步驟 2: 從 Borg 還原 archive
-
-Ubuntu 安裝 Borg
-
-```bash
-sudo apt update
-sudo apt install borgbackup
-```
-
-列出 archive
-
-```bash
-borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
-```
-
-```bash
-DATECODE=2026-07-07
-mkdir -p "$HOME/finance-tracker-restore/$DATECODE"
-cd "$HOME/finance-tracker-restore/$DATECODE"
-borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$DATECODE --remote-path /opt/bin/borg --strip-components 2
-```
-
-### 步驟 3: 放回 SQLite 資料 及 `systemd.env`
-
-```bash
-DATECODE=2026-07-07
-cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker.db" "$HOME/finance-tracker.db"
-mkdir -p "$HOME/.config/finance-tracker-sqlite"
-cp "$HOME/finance-tracker-restore/$DATECODE/systemd.env" "$HOME/.config/finance-tracker-sqlite/systemd.env"
-chmod 600 "$HOME/.config/finance-tracker-sqlite/systemd.env"
-```
-
-如果 `systemd.env` 內有 `npm` 路徑，請依新電腦上的位置調整，例如 `/home/user/.nvm/versions/node/v22.23.1/bin/npm`
-
-```bash
-which npm
-```
-
-檢查 system.env 及根據 server name 和 npm path 修正 PUBLIC_ORIGIN, NPM_BIN 和 NPM_BIN
-
-### 步驟 4: 放回 `.env`
-
-```bash
-cp "$HOME/finance-tracker-restore/$DATECODE/.env" "$HOME/WorkSpace/finance-tracker-sqlite/.env"
-```
-
-檢查 .env 及根據 server name 修正 APP_SQLITE_API_BASE_URL
-
-### 步驟 5: 重新產生 app-config.js
-
-用 `.env` 產生 `app-config.js`。
-
-```bash
-cd "$HOME/WorkSpace/finance-tracker-sqlite"
-npm run config:generate
-```
-
-### 步驟 6: 建立 frontend systemd service
-
-```bash
-DATECODE=2026-07-07
-mkdir -p "$HOME/.config/systemd/user"
-cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker-sqlite-frontend.service" "$HOME/.config/systemd/user/finance-tracker-sqlite-frontend.service"
-```
-
-   > [!IMPORTANT]
-   > 請確保 `WorkingDirectory` 設定為您專案目錄的實際絕對路徑。
-
-
-**新建立的 service 要先 enable**
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now finance-tracker-sqlite-frontend.service
-```
-
-**若是修改已 enable  的 service 只需 restart**
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart finance-tracker-sqlite-frontend.service
-```
-
-**啟用 Linger（使 systemd user service 在重開機後尚未登入桌面也自動啟動起來）**：
-
-   ```bash
-   sudo loginctl enable-linger $USER
-   ```
-
-驗證服務能不能連上：
-
-```bash
-curl -I http://127.0.0.1:5173
-curl -I http://127.0.0.1:8765
-```
-
-
-### 步驟 7: 重新安裝 cloudflared
-
-在新電腦上重新建立 `cloudflared`。
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create <your-tunnel-name>
-mkdir -p "$HOME/.cloudflared"
-cat > "$HOME/.cloudflared/config.yml" <<'EOF'
-tunnel: <your-tunnel-id>
-credentials-file: ~/.cloudflared/<your-tunnel-id>.json
-
-ingress:
-  - hostname: moneybook.example.com
-    service: http://127.0.0.1:8000
-  - service: http_status:404
-EOF
-```
-
-如果你需要 DNS 綁定，再執行：
-
-```bash
-cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
-cloudflared tunnel route dns <your-tunnel-name> moneybook.example.com
-```
-
-建立 user-level systemd 配置目錄：
-
-```bash
-mkdir -p ~/.config/systemd/user
-```
-
-建立服務設定檔 `~/.config/systemd/user/cloudflared-tunnel.service`：
-
-```ini
-[Unit]
-Description=Cloudflare Tunnel - user mode
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=%h/.local/bin/cloudflared tunnel --config %h/.cloudflared/config.yml run
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-```
-  
-   *(註：%h 在 systemd 中會自動替換為使用者的 Home 目錄)*
-
-修改後驗證：
-
-```bash
-cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
-```
-
-若 service 正在運行，再重啟：
-
-```bash
-systemctl --user restart cloudflared-tunnel.service
-```
-
-### 步驟 8: 重新安裝 Caddy
-
-在 Ubuntu 24.04 LTS 安裝 Caddy，建議使用官方 APT repository。
-
-```bash
-sudo apt update
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update
-sudo apt install caddy
-```
-
-確認安裝：
-
-```bash
-caddy version
-sudo systemctl status caddy
-```
-
-建立 `/etc/caddy/Caddyfile`：
-
-```bash
-sudo mkdir -p /etc/caddy
-sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
-:8000 {
-  handle_path /bridge/* {
-    reverse_proxy 127.0.0.1:8765
-  }
-
-  handle {
-    reverse_proxy 127.0.0.1:5173
-  }
-}
-EOF
-```
-
-重啟 Caddy：
-
-```bash
-sudo systemctl enable caddy
-sudo systemctl restart caddy
-```
-
-### 步驟 9: 驗證服務
-
-Ubuntu 安裝 rg
-
-```bash
-sudo apt update
-sudo apt install ripgrep
-```
-
-確認本機有在聽的 port：
-
-```bash
-ss -ltnp | rg ':5173|:8765|:8000'
-```
-
-確認 Caddy 與前端可以正常回應：
-
-```bash
-curl -I http://127.0.0.1:5173
-curl -I http://127.0.0.1:8765
-curl -I http://127.0.0.1:8000
-```
-
-最後在專案目錄檢查資料庫：
-
-```bash
-cd "$HOME/WorkSpace/finance-tracker-sqlite"
-npm run sqlite:verify-db -- --db "$HOME/finance-tracker.db" --user-id local-user
-```
-
-# 常用服務維護指令
-
-* **查看服務狀態**：
-
-```bash
-systemctl --user status finance-tracker-sqlite-frontend.service
-```
-  
-* **查看即時日誌**：
-
-```bash
-journalctl --user -u finance-tracker-sqlite-frontend.service -f
-```
-  
-* **重啟服務**：
-
-```bash
-systemctl --user restart finance-tracker-sqlite-frontend.service
-```
-
-* **停止與解除安裝服務**：
-
-```bash
-systemctl --user disable --now finance-tracker-sqlite-frontend.service
-rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
-systemctl --user daemon-reload
-```
-
-# 手動啟動 
-
-
-* **先把 systemd.env 裡的變數轉成環境變數 再啟動 sqlite:frontend**：
-
-```bash
-cd /home/roger/WorkSpace/finance-tracker-sqlite
-set -a
-source /home/roger/.config/finance-tracker-sqlite/systemd.env
-PUBLIC_ORIGIN='http://192.168.0.48:5000'
-set +a
-
-"$NPM_BIN" run sqlite:frontend -- \
-    --db "$DB_PATH" \
-    --user-id "$USER_ID" \
-    --bridge-host "$BRIDGE_HOST" \
-    --serve-host "$SERVE_HOST" \
-    --public-origin "$PUBLIC_ORIGIN" \
-    --login-email-env LOGIN_EMAIL \
-    --login-password-env LOGIN_PASSWORD
-```
-
-PS:  要先用 `ip a` 來查尋 ip。
-
-* **在另一個視窗啟動 reverse proxy**：
-
-```bash
-cd /home/roger/WorkSpace/finance-tracker-sqlite
-python3 scripts/reverse_proxy.py
-```
-
-* **然後用 Chrome 連 `http://192.168.0.138:5000`**。
