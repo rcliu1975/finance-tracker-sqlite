@@ -41,34 +41,32 @@ npm run sqlite:export-records -- --db "$HOME/finance-tracker.db" --output "$HOME
 npm run sqlite:export-json -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/export.json"
 ```
 
-### 步驟 3: 暫停會寫入 DB 的服務
+### 步驟 3: 複製 `finance-tracker.db` ，`finance-tracker-sqlite-frontend.service` ，`systemd.env` 和  `.env`
 
 ```bash
+#暫停會寫入 DB 的服務
 systemctl --user stop finance-tracker-sqlite-frontend.service 2>/dev/null || true
-```
 
-### 步驟 4: 複製 `finance-tracker.db` ，`finance-tracker-sqlite-frontend.service` ，`systemd.env` 和  `.env`
-
-```bash
 cd "$HOME"
 cp finance-tracker.db finance-tracker-backups/latest
 cp .config/systemd/user/finance-tracker-sqlite-frontend.service finance-tracker-backups/latest
 cp .config/finance-tracker-sqlite/systemd.env finance-tracker-backups/latest
 cp ~/WorkSpace/finance-tracker-sqlite/.env finance-tracker-backups/latest
-```
 
-### 步驟 5: 恢復服務
-
-```bash
+#恢復服務
 systemctl --user start finance-tracker-sqlite-frontend.service
 ```
 
-### 步驟 6: 寫入 Borg repository
+### 步驟 4: 寫入 Borg repository
 
 ```bash
 cd "$HOME"
 borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$(date +%F) finance-tracker-backups/latest --remote-path /opt/bin/borg
 ```
+
+---
+
+## Borg 維謢指令
 
 ### 清理舊 archive
 
@@ -80,6 +78,8 @@ borg compact ssh://backup-host/./borg/finance-tracker
 ```
 
 borg prune 會保留：最近 7 天的每日備份, 最近 4 週的每週備份, 最近 12 個月的每月備份
+
+---
 
 # 由 Borg archive 還原到新電腦的流程
 
