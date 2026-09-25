@@ -370,11 +370,11 @@ systemctl --user daemon-reload
 
 ---
 
-# 更新 SQLite 的 monthly_snapshots，執行：
+# 更新 SQLite 的 monthly_snapshots，執行：   
 
-  1. 重新計算月快照
-  2. 寫回 monthly_snapshots
-  3. 清除 snapshot_dirty_from_month
+  1. 重新計算月快照   
+  2. 寫回 monthly_snapshots   
+  3. 清除 snapshot_dirty_from_month   
 
 ```bash
   cd ~/WorkSpace/finance-tracker-sqlite
@@ -396,14 +396,14 @@ systemctl --user daemon-reload
     --user-id local-user
 ```
 
-• 驗證結果正常：
-
-  • foreign_key_check: ok：沒有外鍵錯誤
-  • transactions: 23427：交易資料存在
-  • monthly_snapshots: 206：月快照完整
-  • 快照範圍應為 2009-08 到 2026-09，共 206 個月
-  • 最近 6 個月的收支、淨資產變化都有成功完成 reconciliation (對帳, 勾稽)
-  • fxValuationDelta=0 表示這些月份的淨資產變化都能由交易收支解釋，沒有額外匯率估值差異
+• 驗證結果正常：   
+   
+  • foreign_key_check: ok：沒有外鍵錯誤   
+  • transactions: 23427：交易資料存在   
+  • monthly_snapshots: 206：月快照完整   
+  • 快照範圍應為 2009-08 到 2026-09，共 206 個月   
+  • 最近 6 個月的收支、淨資產變化都有成功完成 reconciliation (對帳, 勾稽)   
+  • fxValuationDelta=0 表示這些月份的淨資產變化都能由交易收支解釋，沒有額外匯率估值差異   
 
 ---
 ---
