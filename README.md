@@ -14,20 +14,19 @@
 - `~/.config/systemd/user/finance-tracker-sqlite-frontend.service`
 - `匯出的 .csv`
 
-### Ubuntu 安裝 Borg
+### Ubuntu 安裝 Borg 及 初始化 repo
 
 ```bash
 sudo apt update
+
+# 安裝 Borg
 sudo apt install borgbackup
-```
 
-## 步驟 1: 初始化 repo
-
-```bash
+# 初始化 repo
 borg init --encryption=none rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
 ```
 
-### 步驟 2: 匯出可讀格式
+### 步驟 1: 匯出可讀格式
 
 先把資料匯出成 CSV / JSON，讓未來即使 SQLite schema 有變，也能重新建立資料。`~/finance-tracker-backups/latest/` 只保留最新一份。
 
@@ -41,7 +40,7 @@ npm run sqlite:export-records -- --db "$HOME/finance-tracker.db" --output "$HOME
 npm run sqlite:export-json -- --db "$HOME/finance-tracker.db" --output "$HOME/finance-tracker-backups/latest/export.json"
 ```
 
-### 步驟 3: 複製 `finance-tracker.db` ，`finance-tracker-sqlite-frontend.service` ，`systemd.env` 和  `.env`
+### 步驟 2: 複製 `finance-tracker.db` ，`finance-tracker-sqlite-frontend.service` ，`systemd.env` 和  `.env`
 
 ```bash
 #暫停會寫入 DB 的服務
@@ -57,7 +56,7 @@ cp ~/WorkSpace/finance-tracker-sqlite/.env finance-tracker-backups/latest
 systemctl --user start finance-tracker-sqlite-frontend.service
 ```
 
-### 步驟 4: 寫入 Borg repository
+### 步驟 3: 寫入 Borg repository
 
 ```bash
 cd "$HOME"
