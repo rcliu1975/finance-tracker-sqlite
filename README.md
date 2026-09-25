@@ -102,18 +102,17 @@ cd finance-tracker-sqlite
 # npm install
 ```
 
-### 步驟 2: 從 Borg 還原 archive
-
-Ubuntu 安裝 Borg
-
-```bash
-sudo apt update
-sudo apt install borgbackup
-```
+### 步驟 2: 查詢 Borg 的 archive
 
 列出 archive
 
 ```bash
+sudo apt update
+
+# 安裝 Borg
+sudo apt install borgbackup
+
+#列出 archive
 borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
 ```
 
@@ -123,19 +122,19 @@ borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/
 DATECODE=2026-07-07
 ```
 
-取回 archive
+### 步驟 3: 放回 SQLite 資料 及 `systemd.env`
 
 ```bash
 mkdir -p "$HOME/finance-tracker-restore/$DATECODE"
 cd "$HOME/finance-tracker-restore/$DATECODE"
+
+# 取回 archive
 borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$DATECODE --remote-path /opt/bin/borg --strip-components 2
-```
 
-### 步驟 3: 放回 SQLite 資料 及 `systemd.env`
-
-```bash
-DATECODE=2026-07-07
+# 放回 SQLite 資料
 cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker.db" "$HOME/finance-tracker.db"
+
+# 放回 systemd.env
 mkdir -p "$HOME/.config/finance-tracker-sqlite"
 cp "$HOME/finance-tracker-restore/$DATECODE/systemd.env" "$HOME/.config/finance-tracker-sqlite/systemd.env"
 chmod 600 "$HOME/.config/finance-tracker-sqlite/systemd.env"
