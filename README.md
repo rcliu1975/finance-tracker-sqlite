@@ -266,7 +266,7 @@ systemctl --user restart cloudflared-tunnel.service
 
 ### 步驟 8: 重新安裝 Caddy
 
-在 Ubuntu 24.04 LTS 安裝 Caddy，建議使用官方 APT repository。
+在 Ubuntu / Armbian 安裝 Caddy，建議使用官方 APT repository。
 
 ```bash
 sudo apt update
