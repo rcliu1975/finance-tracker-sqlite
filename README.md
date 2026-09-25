@@ -99,6 +99,9 @@ mkdir -p "$HOME/WorkSpace"
 cd "$HOME/WorkSpace"
 git clone git@github.com:rcliu1975/finance-tracker-sqlite
 cd finance-tracker-sqlite
+
+#安裝 nodejs 及 npm
+sudo apt install -y nodejs npm
 # npm install
 ```
 
@@ -122,7 +125,7 @@ borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/
 DATECODE=2026-07-07
 ```
 
-### 步驟 3: 放回 SQLite 資料 及 `systemd.env`
+### 步驟 3: 放回資料檔案
 
 ```bash
 mkdir -p "$HOME/finance-tracker-restore/$DATECODE"
@@ -134,10 +137,21 @@ borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker
 # 放回 SQLite 資料
 cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker.db" "$HOME/finance-tracker.db"
 
+# 放回 `.env`
+cp "$HOME/finance-tracker-restore/$DATECODE/.env" "$HOME/WorkSpace/finance-tracker-sqlite/.env"
+
 # 放回 systemd.env
 mkdir -p "$HOME/.config/finance-tracker-sqlite"
 cp "$HOME/finance-tracker-restore/$DATECODE/systemd.env" "$HOME/.config/finance-tracker-sqlite/systemd.env"
 chmod 600 "$HOME/.config/finance-tracker-sqlite/systemd.env"
+```
+
+檢查 .env 及根據 server name 修正 APP_SQLITE_API_BASE_URL
+
+檢查 `systemd.env`
+
+```bash
+cat "$HOME/.config/finance-tracker-sqlite/systemd.env"
 ```
 
 如果 `systemd.env` 內有 `npm` 路徑，請依新電腦上的位置調整，例如 `/home/user/.nvm/versions/node/v22.23.1/bin/npm`
@@ -148,54 +162,35 @@ which npm
 
 檢查 system.env 及根據 server name 和 npm path 修正 PUBLIC_ORIGIN, NPM_BIN 和 NPM_BIN
 
-### 步驟 4: 放回 `.env`
-
-```bash
-cp "$HOME/finance-tracker-restore/$DATECODE/.env" "$HOME/WorkSpace/finance-tracker-sqlite/.env"
-```
-
-檢查 .env 及根據 server name 修正 APP_SQLITE_API_BASE_URL
-
-### 步驟 5: 重新產生 app-config.js
-
-用 `.env` 產生 `app-config.js`。
-
-```bash
-cd "$HOME/WorkSpace/finance-tracker-sqlite"
-npm run config:generate
-```
 
 ### 步驟 6: 建立 frontend systemd service
 
 ```bash
-DATECODE=2026-07-07
+# 用 `.env` 產生 `app-config.js`。
+cd "$HOME/WorkSpace/finance-tracker-sqlite"
+npm run config:generate
+
+# 建立 frontend systemd service
 mkdir -p "$HOME/.config/systemd/user"
 cp "$HOME/finance-tracker-restore/$DATECODE/finance-tracker-sqlite-frontend.service" "$HOME/.config/systemd/user/finance-tracker-sqlite-frontend.service"
-```
+# 請確保 `WorkingDirectory` 設定為您專案目錄的實際絕對路徑。
 
-   > [!IMPORTANT]
-   > 請確保 `WorkingDirectory` 設定為您專案目錄的實際絕對路徑。
-
-
-**新建立的 service 要先 enable**
-
-```bash
+# 新建立的 service 要先 enable
 systemctl --user daemon-reload
 systemctl --user enable --now finance-tracker-sqlite-frontend.service
+
+# 若是修改已 enable  的 service 只需 restart
+#systemctl --user daemon-reload
+#systemctl --user restart finance-tracker-sqlite-frontend.service
+
+# 啟用 Linger（使 systemd user service 在重開機後尚未登入桌面也自動啟動起來）
+sudo loginctl enable-linger $USER
+
 ```
 
-**若是修改已 enable  的 service 只需 restart**
+> [!IMPORTANT]
+> 請確保 `WorkingDirectory` 設定為您專案目錄的實際絕對路徑。
 
-```bash
-systemctl --user daemon-reload
-systemctl --user restart finance-tracker-sqlite-frontend.service
-```
-
-**啟用 Linger（使 systemd user service 在重開機後尚未登入桌面也自動啟動起來）**：
-
-   ```bash
-   sudo loginctl enable-linger $USER
-   ```
 
 驗證服務能不能連上：
 
