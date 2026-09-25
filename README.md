@@ -117,8 +117,15 @@ sudo apt install borgbackup
 borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
 ```
 
+設定 DATACODE
+
 ```bash
 DATECODE=2026-07-07
+```
+
+取回 archive
+
+```bash
 mkdir -p "$HOME/finance-tracker-restore/$DATECODE"
 cd "$HOME/finance-tracker-restore/$DATECODE"
 borg extract rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker::finance-tracker-$DATECODE --remote-path /opt/bin/borg --strip-components 2
