@@ -65,7 +65,7 @@ borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracke
 
 ---
 
-## Borg 維謢指令
+## Borg 維謢指令 (參考 AI-notes/QNAP使用Borg.md)
 
 
 ### 用 prune 清理歷史版本
