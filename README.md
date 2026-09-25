@@ -77,6 +77,12 @@ borg compact ssh://backup-host/./borg/finance-tracker
 
 borg prune 會保留：最近 7 天的每日備份, 最近 4 週的每週備份, 最近 12 個月的每月備份
 
+列出 archive
+
+```bash
+borg list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --remote-path /opt/bin/borg
+```
+
 ---
 
 ## 由 Borg archive 還原到新電腦的流程
@@ -93,7 +99,7 @@ mkdir -p "$HOME/WorkSpace"
 cd "$HOME/WorkSpace"
 git clone git@github.com:rcliu1975/finance-tracker-sqlite
 cd finance-tracker-sqlite
-npm install
+# npm install
 ```
 
 ### 步驟 2: 從 Borg 還原 archive
