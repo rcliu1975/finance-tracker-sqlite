@@ -67,9 +67,8 @@ borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracke
 
 ## Borg 維謢指令
 
-### 清理舊 archive
 
-用 prune 清理歷史版本
+### 用 prune 清理歷史版本
 
 ```bash
 borg prune -v --list rcliu@qnap:/share/Backup3/BorgRepo_finance-tracker --glob-archives 'finance-tracker-*' --keep-daily=7 --keep-weekly=4 --keep-monthly=12
