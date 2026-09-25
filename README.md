@@ -368,6 +368,9 @@ rm -f ~/.config/systemd/user/finance-tracker-sqlite-frontend.service
 systemctl --user daemon-reload
 ```
 
+---
+---
+
 # 手動啟動 
 
 
