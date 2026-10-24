@@ -193,7 +193,12 @@ cp "$HOME/finance-tracker-restore/$DATECODE/systemd.env" "$HOME/.config/finance-
 chmod 600 "$HOME/.config/finance-tracker-sqlite/systemd.env"
 ```
 
-檢查 .env 及根據 server name 修正 APP_SQLITE_API_BASE_URL
+檢查 `.env` 
+
+```bash
+cat "$HOME/WorkSpace/finance-tracker-sqlite/.env"
+```
+根據 server name 修正 APP_SQLITE_API_BASE_URL    
 
 檢查 `systemd.env`
 
