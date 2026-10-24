@@ -67,7 +67,7 @@ borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracke
 ## 移除網域
 移除網域包含修改本機 Ingress 與刪除 Cloudflare DNS 紀錄兩部分。
 
-* 修改本機 Ingress：
+### 修改本機 Ingress：
 1. **編輯 `~/.cloudflared/config.yml`**：
    刪除對應的 `- hostname` 區塊，並保留最後的 `http_status:404`。
 2. **驗證並重新啟動服務**：
@@ -76,7 +76,7 @@ borg create --stats --progress rcliu@qnap:/share/Backup3/BorgRepo_finance-tracke
    systemctl --user restart cloudflared-tunnel.service
    ```
 
-* 刪除 Cloudflare DNS 紀錄
+### 刪除 Cloudflare DNS 紀錄
 1. **刪除 Cloudflare Dashboard 上的 DNS CNAME 紀錄**：
    * 登入 [Cloudflare Dashboard](https://dash.cloudflare.com)，進入該網域的 **DNS** 設定頁面，手動刪除該 hostname 的 `CNAME` 紀錄。
 
