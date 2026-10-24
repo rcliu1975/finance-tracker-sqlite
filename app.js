@@ -107,6 +107,7 @@ const state = {
   mobileEditingTransactionId: "",
   desktopSelectedTransactionId: "",
   desktopEditingTransactionId: "",
+  lastAddedTransactionDate: "",
   transactionSourceType: localStorage.getItem("financeTransactionSourceType") || "asset",
   transactionDestinationType: localStorage.getItem("financeTransactionDestinationType") || "asset",
   desktopMode: localStorage.getItem("financeDesktopMode") === "true",
@@ -1139,6 +1140,7 @@ async function handleTransactionSubmit(event) {
     state.desktopSelectedTransactionId = state.desktopEditingTransactionId;
   } else {
     const transactionRef = await dataBackend.createUserCollectionDocument("transactions", payload);
+    state.lastAddedTransactionDate = payload.date;
     if (state.desktopMode) {
       state.desktopSelectedTransactionId = transactionRef.id;
     } else {
@@ -3257,9 +3259,10 @@ function renderDestinationItemOptionsFor(typeSelectId, itemSelectId, selectedTyp
 }
 
 function setTodayDefault() {
+  const defaultDate = state.lastAddedTransactionDate || todayKey();
   document.querySelectorAll('input[name="date"]').forEach((dateInput) => {
     if (!dateInput.value) {
-      dateInput.value = todayKey();
+      dateInput.value = defaultDate;
     }
   });
   syncMobileDateField();
