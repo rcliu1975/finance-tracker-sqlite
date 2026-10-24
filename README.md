@@ -274,6 +274,10 @@ EOF
 如果你需要 DNS 綁定，再執行：
 
 ```bash
+cloudflared tunnel list
+```
+
+```bash
 cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
 cloudflared tunnel route dns <your-tunnel-name> moneybook.example.com
 ```
