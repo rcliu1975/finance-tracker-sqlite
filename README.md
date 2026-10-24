@@ -207,7 +207,7 @@ cat "$HOME/.config/finance-tracker-sqlite/systemd.env"
 which npm
 ```
 
-檢查 system.env 及根據 server name 和 npm path 修正 PUBLIC_ORIGIN, NPM_BIN 和 NPM_BIN
+檢查 system.env 及根據 server name 和 npm path 修正 PUBLIC_ORIGIN 和 NPM_BIN
 
 
 ### 步驟 4: 建立 frontend systemd service
