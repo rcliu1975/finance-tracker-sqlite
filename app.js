@@ -2976,7 +2976,12 @@ async function saveSummaryFromInput(inputId, formKind) {
 
 function bindSummaryInput(inputId, menuId, formKind) {
   const input = $(inputId);
-  input.addEventListener("input", updateSaveSummaryButtons);
+  input.addEventListener("input", () => {
+    updateSaveSummaryButtons();
+    if (input.value) {
+      hideSummaryMenus();
+    }
+  });
   input.addEventListener("focus", () => showSummaryMenu(inputId, menuId, formKind));
   input.addEventListener("click", () => showSummaryMenu(inputId, menuId, formKind));
 }
