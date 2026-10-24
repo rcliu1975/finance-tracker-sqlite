@@ -1142,6 +1142,15 @@ async function handleTransactionSubmit(event) {
     const transactionRef = await dataBackend.createUserCollectionDocument("transactions", payload);
     state.lastAddedTransactionDate = payload.date;
     if (state.desktopMode) {
+      state.desktopDate = monthKey(payload.date);
+      localStorage.setItem("financeDesktopDate", state.desktopDate);
+      state.desktopSidebarSelection = {
+        kind: "item",
+        key: `${toItem.kind}:${toItem.id}`,
+        id: toItem.id,
+        itemKind: toItem.kind,
+        itemType: toItem.type
+      };
       state.desktopSelectedTransactionId = transactionRef.id;
     } else {
       state.mobileSelectedTransactionId = transactionRef.id;
